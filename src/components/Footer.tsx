@@ -1,6 +1,6 @@
 export default function Footer() {
   return (
-    <footer className="w-full py-16 px-6 md:px-20 flex flex-col md:flex-row justify-between items-center gap-8 bg-[#F4F4F2] border-t border-[#6A6A57]/30 mt-12 select-none relative z-10 text-[#2E2E2A]">
+    <footer className="w-full py-16 px-6 md:px-20 flex flex-col md:flex-row justify-between items-center gap-8 bg-[#F4F4F2] border-t border-[#6A6A57]/30 mt-12 select-none relative z-10 text-[#2E2E2A] transition-all duration-300">
       <div className="font-display text-[#2E2E2A] text-2xl uppercase tracking-widest font-bold">
         KATINA BASIL
       </div>

@@ -116,6 +116,7 @@ const INITIAL_STATS: AdminStats = {
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   
   // Custom Dynamic State Handlers
   const [packages, setPackages] = useState<TicketPackage[]>(INITIAL_PACKAGES);
@@ -211,7 +212,7 @@ export default function App() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#666E54] text-[#F4F4F2] selection:bg-[#4E1413] selection:text-[#F4F4F2] flex flex-col justify-between overflow-x-hidden">
+    <div className={`relative min-h-screen ${isDarkMode ? 'dark' : ''} bg-[#666E54] text-[#F4F4F2] selection:bg-[#4E1413] selection:text-[#F4F4F2] flex flex-col justify-between overflow-x-hidden transition-all duration-500`}>
       
       {/* Absolute Dynamic Header Navigation Portal */}
       <Header 
@@ -226,6 +227,8 @@ export default function App() {
             : undefined
         }
         hasItemsInBag={hasItemsInBag}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(prev => !prev)}
       />
 
       {/* Primary Route Screen Containers */}

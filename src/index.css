@@ -50,6 +50,20 @@
   --color-on-primary-fixed: #F4F4F2;
 }
 
+:root {
+  --theme-white-part-bg: #F4F4F2;
+  --theme-white-part-text: #2E2E2A;
+  --theme-white-part-text-muted: #6A6A57;
+  --theme-white-part-border: rgba(106, 106, 87, 0.3);
+}
+
+.dark {
+  --theme-white-part-bg: #0C0D0A;
+  --theme-white-part-text: #F4F4F2;
+  --theme-white-part-text-muted: #CBD5E1;
+  --theme-white-part-border: rgba(244, 244, 242, 0.25);
+}
+
 /* Base style additions for smooth luxury visual interactions */
 @layer base {
   body {
