@@ -37,15 +37,15 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8 }}
-            className="font-label-caps text-tertiary tracking-[0.3em] mb-3 text-xs"
+            className="font-label-caps text-[#F4F4F2] font-semibold tracking-[0.3em] mb-3 text-xs"
           >
-            FW24 PREMIERE ACCESS
+            KATINA BASIL SHOWCASE ACCESS
           </motion.p>
           <motion.h1 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease: [0.25, 1, 0.5, 1] }}
-            className="font-display text-4xl sm:text-6xl md:text-7xl text-[#e5e2e1] mb-6 tracking-tight leading-none"
+            className="font-display text-4xl sm:text-6xl md:text-7xl text-[#F4F4F2] mb-6 tracking-tight leading-none"
           >
             SELECT ALLOCATION
           </motion.h1>
@@ -53,9 +53,9 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 1 }}
-            className="font-body-md text-on-surface-variant max-w-2xl mx-auto leading-relaxed text-sm md:text-base"
+            className="font-body-md text-[#F4F4F2]/80 max-w-2xl mx-auto leading-relaxed text-sm md:text-base"
           >
-            Secure your attendance. Due to the intimate and elite nature of the atelier, seating arrangements and ticketing availability are strictly regulated and limited.
+            Secure your attendance. Due to the intimate and elite nature of the showroom, seating arrangements and ticketing availability are strictly regulated and limited.
           </motion.p>
         </div>
 
@@ -74,69 +74,51 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                 transition={{ duration: 0.8, delay: idx * 0.15 }}
                 tabIndex={0}
                 onClick={() => onSelect(pkg.id)}
-                className={`relative group rounded-xl p-8 md:p-10 cursor-pointer outline-none border transition-all duration-700 backdrop-blur-3xl flex flex-col justify-between ${
-                  isUltra 
-                    ? 'border-[#e9c349]/30 bg-[#e9c349]/[0.02] hover:bg-[#e9c349]/[0.05] hover:border-[#e9c349]/50 hover:shadow-[0_0_50px_rgba(233,195,73,0.1)]'
-                    : isVip
-                    ? 'border-white/10 bg-white/[0.04] hover:bg-white/[0.07] hover:border-white/30 hover:shadow-[0_0_45px_rgba(255,255,255,0.06)]'
-                    : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/15'
-                }`}
+                className="relative group rounded-none p-8 md:p-10 cursor-pointer outline-none border border-[#6A6A57]/30 bg-[#4E1413] hover:shadow-[0_0_35px_rgba(78,20,19,0.35)] transition-all duration-500 flex flex-col justify-between text-[#F4F4F2]"
               >
-                {/* Highlight top border gradient lines */}
-                <div className={`absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent ${
-                  isUltra ? 'via-tertiary/60' : isVip ? 'via-primary/50' : 'via-white/10'
-                } to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000`} />
-
-                {/* Ambient glow decoration backlights */}
-                {isUltra && (
-                  <div className="absolute top-10 right-0 w-24 h-24 bg-tertiary/10 blur-[40px] rounded-full pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
-                )}
-
                 <div>
                   {/* Card Header */}
                   <div className="mb-8 relative z-10">
                     <div className="flex justify-between items-start mb-4">
                       <h2 className={`font-label-caps text-[11px] md:text-xs tracking-[0.25em] flex items-center gap-2 ${
-                        isUltra ? 'text-tertiary font-bold' : 'text-on-surface-variant'
+                        isUltra ? 'text-[#F4F4F2] font-bold' : 'text-[#F4F4F2]/80'
                       }`}>
-                        {isUltra && <Trophy className="w-3.5 h-3.5 text-tertiary" />}
-                        {isVip && <Sparkles className="w-3.5 h-3.5 text-primary" />}
-                        {!isVip && !isUltra && <Shield className="w-3.5 h-3.5 text-on-surface-variant/40" />}
+                        {isUltra && <Trophy className="w-3.5 h-3.5 text-[#F4F4F2]" />}
+                        {isVip && <Sparkles className="w-3.5 h-3.5 text-[#F4F4F2]" />}
+                        {!isVip && !isUltra && <Shield className="w-3.5 h-3.5 text-[#F4F4F2]/60" />}
                         {pkg.name}
                       </h2>
                       {isUltra && (
-                        <span className="bg-tertiary/10 border border-tertiary/30 text-tertiary font-label-caps text-[9px] px-2.5 py-0.5 rounded-none tracking-widest">
+                        <span className="bg-[#F4F4F2]/10 border border-[#F4F4F2]/30 text-[#F4F4F2] font-label-caps text-[9px] px-2.5 py-0.5 rounded-none tracking-widest">
                           Elite Front Row
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-baseline gap-1 mt-2">
-                      <span className="text-xs text-tertiary tracking-widest uppercase font-label-caps mr-1">
+                      <span className="text-xs text-[#F4F4F2]/80 tracking-widest uppercase font-label-caps mr-1">
                         K
                       </span>
-                      <span className="text-3xl sm:text-4xl md:text-5xl font-display text-white">
+                      <span className="text-3xl sm:text-4xl md:text-5xl font-display text-[#F4F4F2]">
                         {pkg.price.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-on-surface-variant tracking-widest uppercase font-label-caps ml-1">
+                      <span className="text-[10px] text-[#F4F4F2]/70 tracking-widest uppercase font-label-caps ml-1">
                         ZMW
                       </span>
                     </div>
 
                     <p className={`font-label-caps text-[9px] mt-2 tracking-widest uppercase ${
-                      isUltra ? 'text-tertiary/60' : 'text-on-surface-variant/40'
+                      isUltra ? 'text-[#F4F4F2]/70' : 'text-[#F4F4F2]/50'
                     }`}>
                       {pkg.remaining} ALLOWED CONCESSIONS REMAINING
                     </p>
                   </div>
 
                   {/* Aesthetic divider line */}
-                  <div className={`w-full h-[0.5px] mb-6 transition-colors duration-500 ${
-                    isUltra ? 'bg-tertiary/20 group-hover:bg-tertiary/40' : 'bg-white/10 group-hover:bg-white/20'
-                  }`} />
+                  <div className="w-full h-[0.5px] mb-6 bg-[#F4F4F2]/20" />
 
                   {/* Core Description */}
-                  <p className="font-body-md text-sm text-on-surface-variant/80 mb-6 group-hover:text-white transition-colors">
+                  <p className="font-body-md text-sm text-[#F4F4F2]/90 mb-6 group-hover:text-white transition-colors">
                     {pkg.description}
                   </p>
 
@@ -144,10 +126,10 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                   <div className="mb-8">
                     <button
                       onClick={(e) => toggleExpand(pkg.id, e)}
-                      className="flex items-center gap-1.5 text-xs font-label-caps tracking-widest text-primary/70 hover:text-white hover:opacity-100 transition-all uppercase py-2 cursor-pointer"
+                      className="flex items-center gap-1.5 text-xs font-label-caps tracking-widest text-[#F4F4F2] hover:text-[#F4F4F2]/85 transition-all uppercase py-2 cursor-pointer font-sans"
                     >
                       <span>{isExpanded ? 'Hide Specs' : 'Expand Details'}</span>
-                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-tertiary" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-[#F4F4F2]" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
 
                     <AnimatePresence>
@@ -159,7 +141,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                           transition={{ duration: 0.4, ease: [0.25, 1, 0.5, 1] }}
                           className="overflow-hidden mt-4"
                         >
-                          <ul className="flex flex-col gap-3 py-2 border-t border-white/5">
+                          <ul className="flex flex-col gap-3 py-2 border-t border-[#F4F4F2]/20">
                             {pkg.benefits.map((benefit, bIdx) => {
                               const isForbidden = benefit.toLowerCase().includes('(no)') || benefit.toLowerCase().includes('not included');
                               const displayBenefit = benefit.replace(/\s*\([^)]*\)/, '');
@@ -168,15 +150,13 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                                 <li 
                                   key={bIdx} 
                                   className={`flex items-center gap-2.5 text-xs ${
-                                    isForbidden ? 'text-on-surface-variant/30 line-through' : 'text-on-surface/90'
+                                    isForbidden ? 'text-[#F4F4F2]/40 line-through' : 'text-[#F4F4F2]/95'
                                   }`}
                                 >
                                   {isForbidden ? (
-                                    <X className="w-3.5 h-3.5 text-red-500/50 shrink-0" />
+                                    <X className="w-3.5 h-3.5 text-[#F4F4F2]/55 shrink-0" />
                                   ) : (
-                                    <Check className={`w-3.5 h-3.5 shrink-0 ${
-                                      isUltra ? 'text-tertiary' : 'text-white'
-                                    }`} />
+                                    <Check className="w-3.5 h-3.5 text-[#F4F4F2] shrink-0" />
                                   )}
                                   <span className="tracking-wide">{displayBenefit}</span>
                                 </li>
@@ -196,11 +176,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                     e.stopPropagation();
                     onSelect(pkg.id);
                   }}
-                  className={`w-full py-4 text-center border font-label-caps text-[10px] md:text-xs tracking-[0.2em] transition-all duration-500 uppercase cursor-pointer rounded-none font-semibold ${
-                    isUltra
-                      ? 'bg-tertiary text-on-tertiary border-transparent hover:bg-transparent hover:border-tertiary hover:text-tertiary'
-                      : 'bg-[#e5e2e1] text-[#0e0e0e] border-transparent hover:bg-transparent hover:border-white hover:text-white'
-                  }`}
+                  className="w-full py-4 text-center border font-label-caps text-[10px] md:text-xs tracking-[0.2em] transition-all duration-500 uppercase cursor-pointer rounded-none font-bold bg-[#F4F4F2] text-[#4E1413] border-[#F4F4F2] hover:bg-[#F4F4F2]/90 hover:border-[#F4F4F2]"
                 >
                   Select {pkg.name.split(' ')[0]}
                 </button>

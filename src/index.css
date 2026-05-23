@@ -1,59 +1,60 @@
+@import url('https://fonts.cdnfonts.com/css/bank-gothic');
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Bodoni Moda", "Times New Roman", serif;
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Bodoni Moda", "Times New Roman", serif;
+  --font-sans: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
   
-  --color-primary-fixed-dim: #c9c6c5;
-  --color-tertiary-fixed: #ffe088;
-  --color-surface-container-highest: #353535;
-  --color-on-surface-variant: #c4c7c7;
-  --color-inverse-on-surface: #313030;
-  --color-on-primary-container: #7b7979;
-  --color-secondary-container: #454747;
-  --color-on-primary-fixed-variant: #474646;
-  --color-secondary-fixed-dim: #c6c6c7;
-  --color-surface-dim: #131313;
-  --color-surface-variant: #353535;
-  --color-on-secondary-fixed-variant: #454747;
-  --color-inverse-primary: #5f5e5e;
-  --color-surface-container-lowest: #0e0e0e;
-  --color-surface-container: #20201f;
-  --color-background: #131313;
-  --color-on-tertiary: #3c2f00;
-  --color-surface-container-low: #1c1b1b;
-  --color-tertiary-container: #0e0900;
-  --color-on-tertiary-container: #947600;
-  --color-surface-bright: #393939;
-  --color-on-tertiary-fixed-variant: #574500;
-  --color-tertiary-fixed-dim: #e9c349;
-  --color-surface-container-high: #2a2a2a;
-  --color-on-secondary-container: #b4b5b5;
-  --color-outline-variant: #444748;
-  --color-surface: #131313;
-  --color-tertiary: #e9c349;
-  --color-on-primary: #313030;
-  --color-on-secondary: #2f3131;
-  --color-primary: #c9c6c5;
-  --color-on-secondary-fixed: #1a1c1c;
-  --color-outline: #8e9192;
-  --color-inverse-surface: #e5e2e1;
-  --color-surface-tint: #c9c6c5;
-  --color-on-surface: #e5e2e1;
-  --color-primary-container: #0a0a0a;
-  --color-secondary: #c6c6c7;
-  --color-secondary-fixed: #e2e2e2;
-  --color-on-tertiary-fixed: #241a00;
-  --color-primary-fixed: #e5e2e1;
-  --color-on-background: #e5e2e1;
-  --color-on-primary-fixed: #1c1b1b;
+  --color-primary-fixed-dim: #6A6A57;
+  --color-tertiary-fixed: #4E1413;
+  --color-surface-container-highest: #F4F4F2;
+  --color-on-surface-variant: #6A6A57;
+  --color-inverse-on-surface: #F4F4F2;
+  --color-on-primary-container: #6A6A57;
+  --color-secondary-container: #F4F4F2;
+  --color-on-primary-fixed-variant: #6A6A57;
+  --color-secondary-fixed-dim: #6A6A57;
+  --color-surface-dim: #F4F4F2;
+  --color-surface-variant: #F4F4F2;
+  --color-on-secondary-fixed-variant: #6A6A57;
+  --color-inverse-primary: #4E1413;
+  --color-surface-container-lowest: #666E54;
+  --color-surface-container: #F4F4F2;
+  --color-background: #666E54;
+  --color-on-tertiary: #F4F4F2;
+  --color-surface-container-low: #F4F4F2;
+  --color-tertiary-container: #4E1413;
+  --color-on-tertiary-container: #F4F4F2;
+  --color-surface-bright: #F4F4F2;
+  --color-on-tertiary-fixed-variant: #4E1413;
+  --color-tertiary-fixed-dim: #4E1413;
+  --color-surface-container-high: #F4F4F2;
+  --color-on-secondary-container: #6A6A57;
+  --color-outline-variant: #6A6A57;
+  --color-surface: #666E54;
+  --color-tertiary: #4E1413;
+  --color-on-primary: #F4F4F2;
+  --color-on-secondary: #2E2E2A;
+  --color-primary: #4E1413;
+  --color-on-secondary-fixed: #2E2E2A;
+  --color-outline: #6A6A57;
+  --color-inverse-surface: #2E2E2A;
+  --color-surface-tint: #4E1413;
+  --color-on-surface: #2E2E2A;
+  --color-primary-container: #4E1413;
+  --color-secondary: #6A6A57;
+  --color-secondary-fixed: #F4F4F2;
+  --color-on-tertiary-fixed: #F4F4F2;
+  --color-primary-fixed: #4E1413;
+  --color-on-background: #F4F4F2;
+  --color-on-primary-fixed: #F4F4F2;
 }
 
 /* Base style additions for smooth luxury visual interactions */
 @layer base {
   body {
-    background-color: var(--color-surface-container-lowest);
-    color: var(--color-on-surface);
+    background-color: #666E54;
+    color: #F4F4F2;
     font-family: var(--font-sans);
   }
   
@@ -69,14 +70,14 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0e0e0e; 
+  background: #666E54; 
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a; 
+  background: #6A6A57; 
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #e9c349; 
+  background: #4E1413; 
 }
 
 /* Specific customized text styles from config */
