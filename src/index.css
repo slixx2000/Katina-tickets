@@ -1,0 +1,116 @@
+@import url('https://fonts.cdnfonts.com/css/bank-gothic');
+@import "tailwindcss";
+
+:root {
+  --font-display: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Bodoni Moda", "Times New Roman", serif;
+  --font-sans: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  --theme-white-part-bg: #F4F4F2;
+  --theme-white-part-text: #2E2E2A;
+  --theme-white-part-text-muted: #6A6A57;
+  --theme-white-part-border: rgba(106, 106, 87, 0.3);
+
+  --app-canvas: #666E54;
+  --app-surface: rgba(244, 244, 242, 0.96);
+  --app-card: #F4F4F2;
+  --app-panel: #4E1413;
+  --app-cta: #2E2E2A;
+  --app-cta-hover: #4E1413;
+  --app-on-cta: #F4F4F2;
+  --app-text: #F4F4F2;
+  --app-text-soft: #6A6A57;
+  --app-border: rgba(106, 106, 87, 0.34);
+  --app-panel-text: #F4F4F2;
+  --app-card-text: #2E2E2A;
+  --app-glow: rgba(78, 20, 19, 0.2);
+}
+
+.dark {
+  --theme-white-part-bg: #0C0D0A;
+  --theme-white-part-text: #F4F4F2;
+  --theme-white-part-text-muted: #CBD5E1;
+  --theme-white-part-border: rgba(244, 244, 242, 0.25);
+}
+
+@layer base {
+  html {
+    background: var(--app-canvas);
+  }
+
+  body {
+    background-color: var(--app-canvas);
+    color: var(--app-text);
+    font-family: var(--font-sans);
+    transition: background-color 300ms ease, color 300ms ease;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: var(--font-display);
+    font-variation-settings: 'opsz' 30;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--app-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--app-cta-hover);
+}
+
+.font-label-caps {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.2em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.font-body-md {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 28px;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+}
+
+.font-body-lg {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 32px;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+}
+
+.font-display-lg {
+  font-family: var(--font-display);
+  font-size: 4.5rem;
+  line-height: 5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.font-headline-sm {
+  font-family: var(--font-display);
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 500;
+}
+
+.font-headline-md {
+  font-family: var(--font-display);
+  font-size: 42px;
+  line-height: 48px;
+  font-weight: 500;
+}

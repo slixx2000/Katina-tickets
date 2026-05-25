@@ -1,0 +1,6 @@
+{
+  "name": "Atelier Couture",
+  "description": "Exclusive ticketing, registration, checkout, and admin analytics concierge for the ATELIER fashion showcase events.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
