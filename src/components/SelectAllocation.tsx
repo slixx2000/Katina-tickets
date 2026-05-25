@@ -19,7 +19,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
   };
 
   return (
-    <div className="relative min-h-screen pt-32 pb-24 px-6 md:px-20 overflow-hidden flex flex-col justify-center items-center">
+    <div className="relative min-h-screen bg-[color:var(--select-bg)] pt-32 pb-24 px-6 md:px-20 overflow-hidden flex flex-col justify-center items-center">
       {/* Background Texture and Luxury folded silk effect */}
       <div 
         className="fixed inset-0 z-0 bg-cover bg-center opacity-15 pointer-events-none"
@@ -36,7 +36,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8 }}
-            className="font-label-caps text-[#F4F4F2] font-semibold tracking-[0.3em] mb-3 text-xs"
+            className="font-label-caps text-[color:var(--hero-text)] font-semibold tracking-[0.3em] mb-3 text-xs"
           >
             KATINA BASIL SHOWCASE ACCESS
           </motion.p>
@@ -44,7 +44,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease: [0.25, 1, 0.5, 1] }}
-            className="font-display text-4xl sm:text-6xl md:text-7xl text-[#F4F4F2] mb-6 tracking-tight leading-none"
+            className="font-display text-4xl sm:text-6xl md:text-7xl text-[color:var(--hero-text)] mb-6 tracking-tight leading-none"
           >
             SELECT ALLOCATION
           </motion.h1>
@@ -52,14 +52,14 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 1 }}
-            className="font-body-md text-[#F4F4F2]/80 max-w-2xl mx-auto leading-relaxed text-sm md:text-base"
+            className="font-body-md text-[color:var(--hero-text-muted)] max-w-2xl mx-auto leading-relaxed text-sm md:text-base"
           >
             Secure your attendance. Due to the intimate and elite nature of the showroom, seating arrangements and ticketing availability are strictly regulated and limited.
           </motion.p>
         </div>
 
         {/* Ticket Cards Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-10 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full justify-items-center">
           {packages.map((pkg, idx) => {
             const isVip = pkg.id === 'vip';
             const isUltra = pkg.price === 2500;
@@ -73,7 +73,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                 transition={{ duration: 0.8, delay: idx * 0.15 }}
                 tabIndex={0}
                 onClick={() => onSelect(pkg.id)}
-                className="relative group rounded-none p-8 md:p-10 cursor-pointer outline-none border border-[#6A6A57]/30 bg-[#4E1413] hover:shadow-[0_0_35px_rgba(78,20,19,0.35)] transition-all duration-500 flex flex-col justify-between text-[#F4F4F2]"
+                className="select-card relative group rounded-none p-8 md:p-10 cursor-pointer outline-none border border-[#6A6A57]/30 bg-[#4E1413] hover:shadow-[0_0_35px_rgba(78,20,19,0.35)] transition-all duration-500 flex flex-col justify-between text-[color:var(--card-text)] w-full max-w-md mx-auto"
               >
                 <div>
                   {/* Card Header */}
@@ -175,7 +175,7 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                     e.stopPropagation();
                     onSelect(pkg.id);
                   }}
-                  className="w-full py-4 text-center border font-label-caps text-[10px] md:text-xs tracking-[0.2em] transition-all duration-500 uppercase cursor-pointer rounded-none font-bold bg-[#F4F4F2] text-[#4E1413] border-[#F4F4F2] hover:bg-[#F4F4F2]/90 hover:border-[#F4F4F2]"
+                  className="w-full py-4 text-center border font-label-caps text-[10px] md:text-xs tracking-[0.2em] transition-all duration-500 uppercase cursor-pointer rounded-none font-bold bg-[var(--hero-cta-bg)] text-[var(--hero-cta-text)] border-black hover:bg-[var(--hero-cta-hover-bg)] hover:text-[var(--hero-cta-hover-text)] hover:border-black"
                 >
                   Select {pkg.name.split(' ')[0]}
                 </button>

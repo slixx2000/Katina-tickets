@@ -22,11 +22,13 @@ npm install
 - `LENCO_SECRET_KEY`
 - `LENCO_WEBHOOK_SECRET`
 
-3. Run the app:
+3. Run the app and API together:
 
 ```bash
 npm run dev
 ```
+
+This starts the Vite frontend on port 3000 and the Express API on port 8787.
 
 ## Supabase + Lenco Prep
 
@@ -35,5 +37,7 @@ The app now includes:
 - A Supabase client wrapper with a safe mock fallback while env vars are missing.
 - Admin auth gating that will use Supabase sessions once the project keys are configured.
 - A checkout payment adapter that can call `/api/pay` for Lenco and falls back to local simulation until the backend exists.
+
+The dev server now proxies `/api` requests to the local Express backend so the checkout flow can hit `/api/pay` and `/api/webhook` during development.
 
 When you’re ready, the next step is to add the server endpoints for `/api/pay` and `/api/webhook`, then connect them to the Lenco secret keys.

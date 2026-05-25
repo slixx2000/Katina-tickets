@@ -153,6 +153,10 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDarkMode);
+  }, [isDarkMode]);
+
   // Selections retrieve
   const activeSelectedPackage = packages.find(p => p.id === selectedPkgId) || packages[0];
 
@@ -237,7 +241,7 @@ export default function App() {
   };
 
   return (
-    <div className={`relative min-h-screen ${isDarkMode ? 'dark' : ''} bg-[#666E54] text-[#F4F4F2] selection:bg-[#4E1413] selection:text-[#F4F4F2] flex flex-col justify-between overflow-x-hidden transition-all duration-500`}>
+    <div className="relative min-h-screen bg-[var(--app-canvas)] text-[var(--app-text)] selection:bg-[var(--app-cta-hover)] selection:text-[var(--app-on-cta)] flex flex-col justify-between overflow-x-hidden transition-all duration-500">
       
       {/* Absolute Dynamic Header Navigation Portal */}
       <Header 
@@ -278,7 +282,7 @@ export default function App() {
 
             {currentScreen === 'select-allocation' && (
               <SelectAllocation 
-                packages={packages} 
+                packages={packages.filter(p => p.id !== 'front_row')} 
                 onSelect={handleSelectPackage} 
               />
             )}

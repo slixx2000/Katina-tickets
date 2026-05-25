@@ -1,35 +1,138 @@
-@import url('https://fonts.cdnfonts.com/css/bank-gothic');
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;500;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
-  --font-display: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Bodoni Moda", "Times New Roman", serif;
-  --font-sans: "BankGothic Md BT", "Bank Gothic", "BankGothic", "Orbitron", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bodoni Moda", "Times New Roman", serif;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   --theme-white-part-bg: #F4F4F2;
   --theme-white-part-text: #2E2E2A;
   --theme-white-part-text-muted: #6A6A57;
   --theme-white-part-border: rgba(106, 106, 87, 0.3);
+  --header-bg: var(--theme-white-part-bg);
+  --header-border: var(--theme-white-part-border);
+  --footer-bg: var(--theme-white-part-bg);
+  --footer-text: #2E2E2A;
+  --footer-text-muted: #6A6A57;
 
-  --app-canvas: #666E54;
-  --app-surface: rgba(244, 244, 242, 0.96);
-  --app-card: #F4F4F2;
-  --app-panel: #4E1413;
-  --app-cta: #2E2E2A;
-  --app-cta-hover: #4E1413;
+  --app-canvas: #F4F4F2;
+  --app-surface: rgba(255, 255, 255, 0.96);
+  --app-card: #FFFFFF;
+  --app-panel: #F4F4F2;
+  --app-cta: #4E1413;
+  --app-cta-hover: #666E54;
   --app-on-cta: #F4F4F2;
-  --app-text: #F4F4F2;
+  --app-text: #2E2E2A;
   --app-text-soft: #6A6A57;
   --app-border: rgba(106, 106, 87, 0.34);
-  --app-panel-text: #F4F4F2;
+  --app-panel-text: #2E2E2A;
   --app-card-text: #2E2E2A;
-  --app-glow: rgba(78, 20, 19, 0.2);
+  --app-glow: rgba(78, 20, 19, 0.12);
+  color-scheme: light;
+  --hero-bg-start: #4E5440;
+  --hero-bg-mid: #666E54;
+  --hero-bg-end: #2E3226;
+  --hero-glow: rgba(244, 244, 242, 0.06);
+  --hero-accent-glow: rgba(128, 0, 32, 0.02);
+  --hero-cta-bg: #F4F4F2;
+  --hero-cta-text: #4E1413;
+  --hero-cta-border: #F4F4F2;
+  --hero-cta-hover-bg: #4E1413;
+  --hero-cta-hover-text: #F4F4F2;
+  --hero-cta-hover-border: #4E1413;
+  --card-text: var(--theme-white-part-text);
+  --hero-text: #F4F4F2; /* light-mode hero text: white */
+  --hero-text-muted: #F4F4F2; /* light-mode hero muted text: white */
+  --hero-divider: rgba(0,0,0,0.4);
+  --select-bg: var(--hero-bg-mid);
+  --guest-text: #F4F4F2;
+  --guest-text-muted: #F4F4F2;
+  --guest-border: rgba(244, 244, 242, 0.2);
+  --guest-panel: #4E1413;
+  --guest-submit-bg: #F4F4F2;
+  --guest-submit-text: #4E1413;
+  --guest-submit-border: #F4F4F2;
+  --guest-submit-hover-bg: #F4F4F2;
+  --guest-submit-hover-text: #4E1413;
+  --guest-submit-hover-border: #F4F4F2;
+  --checkout-text: #F4F4F2;
+  --checkout-text-muted: #F4F4F2;
+  --checkout-border: rgba(244, 244, 242, 0.2);
+  --checkout-panel: #4E1413;
+  --checkout-submit-bg: #F4F4F2;
+  --checkout-submit-text: #4E1413;
+  --checkout-submit-border: #F4F4F2;
+  --checkout-submit-hover-bg: #F4F4F2;
+  --checkout-submit-hover-text: #4E1413;
+  --checkout-submit-hover-border: #F4F4F2;
+  --checkout-summary-text: #F4F4F2;
+  --checkout-summary-text-muted: #F4F4F2;
 }
 
 .dark {
-  --theme-white-part-bg: #0C0D0A;
-  --theme-white-part-text: #F4F4F2;
-  --theme-white-part-text-muted: #CBD5E1;
-  --theme-white-part-border: rgba(244, 244, 242, 0.25);
+  --theme-white-part-bg: rgba(0, 0, 0, 0.72);
+  --theme-white-part-text: #D8D9C5;
+  --theme-white-part-text-muted: #A3A46A;
+  --checkout-submit-text: #A3A46A;
+  --header-bg: rgba(0,0,0,0.88);
+  --header-border: rgba(0,0,0,0.6);
+  --footer-bg: var(--header-bg);
+  --footer-text: #A3A46A;
+  --checkout-summary-text: #A3A46A;
+  --checkout-summary-text-muted: #A3A46A;
+  --footer-text-muted: #A3A46A;
+
+  --app-canvas: #2E3529;
+  --app-surface: rgba(0, 0, 0, 0.72);
+  --app-card: #0B0B0B;
+  --app-panel: #111111;
+  --app-cta: #000000;
+  --app-cta-hover: #4E1413;
+  --app-on-cta: #D8D9C5;
+  --app-text: #F4F4F2;
+  --app-text-soft: #A3A46A;
+  --app-border: rgba(163, 164, 106, 0.26);
+  --app-panel-text: #D8D9C5;
+  --app-card-text: #F4F4F2;
+  --app-glow: rgba(163, 164, 106, 0.08);
+  --hero-bg-start: #2E3529;
+  --hero-bg-mid: #252B22;
+  --hero-bg-end: #1E231B;
+  --hero-glow: rgba(163, 164, 106, 0.10);
+  --hero-accent-glow: rgba(78, 20, 19, 0.14);
+  --hero-cta-bg: #000000;
+  --hero-cta-text: #A3A46A;
+  --hero-cta-border: #000000;
+  --hero-cta-hover-bg: #4E1413;
+  --hero-cta-hover-text: #F4F4F2;
+  --hero-cta-hover-border: #4E1413;
+  color-scheme: dark;
+
+  --card-text: var(--app-text-soft);
+  --hero-text: #000000;
+  --hero-text-muted: #000000;
+  --hero-divider: rgba(244,244,242,0.4);
+  --select-bg: var(--app-canvas);
+  --guest-text: #A3A46A;
+  --guest-text-muted: #A3A46A;
+  --guest-border: rgba(244, 244, 242, 0.2);
+  --guest-panel: #4E1413;
+  --guest-submit-bg: #000000;
+  --guest-submit-text: #A3A46A;
+  --guest-submit-border: #000000;
+  --guest-submit-hover-bg: #4E1413;
+  --guest-submit-hover-text: #F4F4F2;
+  --guest-submit-hover-border: #000000;
+  --checkout-text: #000000;
+  --checkout-text-muted: #000000;
+  --checkout-border: rgba(78, 20, 19, 0.45);
+  --checkout-panel: #4E1413;
+  --checkout-submit-bg: #000000;
+  --checkout-submit-text: #A3A46A;
+  --checkout-submit-border: #4E1413;
+  --checkout-submit-hover-bg: #4E1413;
+  --checkout-submit-hover-text: #F4F4F2;
+  --checkout-submit-hover-border: #4E1413;
 }
 
 @layer base {
@@ -113,4 +216,9 @@
   font-size: 42px;
   line-height: 48px;
   font-weight: 500;
+}
+
+.dark .select-card,
+.dark .select-card * {
+  color: var(--card-text) !important;
 }

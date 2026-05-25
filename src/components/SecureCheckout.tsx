@@ -88,12 +88,12 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
   };
 
   return (
-    <div className="min-h-screen relative pt-32 pb-20 px-6 md:px-20 max-w-7xl mx-auto w-full bg-[#666E54] text-[#F4F4F2]">
+    <div className="secure-checkout min-h-screen relative pt-32 pb-20 px-6 md:px-20 max-w-7xl mx-auto w-full bg-[#666E54] text-[color:var(--checkout-text)]">
       {/* Absolute Back Route Action */}
       <div className="absolute top-8 left-6 md:left-12 z-50">
         <button
           onClick={onBack}
-          className="group flex items-center gap-2 text-[#F4F4F2] hover:text-[#F4F4F2]/80 transition-colors cursor-pointer py-1"
+          className="group flex items-center gap-2 text-[color:var(--checkout-text)] hover:text-[color:var(--checkout-text-muted)] transition-colors cursor-pointer py-1"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
           <span className="font-label-caps text-xs">Return</span>
@@ -104,8 +104,8 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
         
         {/* LEFT COLUMN: Order Summary Card (Maroon Page theme) */}
         <div className="lg:col-span-5 order-2 lg:order-1 flex flex-col gap-8">
-          <div className="bg-[#4E1413] border border-[#F4F4F2]/20 p-8 rounded-none shadow-[0_4px_30px_rgba(0,0,0,0.25)] text-[#F4F4F2]">
-            <h2 className="font-label-caps text-xs text-[#F4F4F2]/70 mb-6 uppercase tracking-[0.25em] font-bold">
+          <div className="bg-[color:var(--checkout-panel)] border border-[color:var(--checkout-border)] p-8 rounded-none shadow-[0_4px_30px_rgba(0,0,0,0.25)] text-[color:var(--checkout-summary-text)]">
+            <h2 className="font-label-caps text-xs text-[color:var(--checkout-summary-text)]/70 mb-6 uppercase tracking-[0.25em] font-bold">
               Order Summary
             </h2>
 
@@ -120,45 +120,45 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
               />
             </div>
 
-            <h3 className="font-headline-sm text-2xl text-[#F4F4F2] mb-2 leading-snug font-bold">
+            <h3 className="font-headline-sm text-2xl text-[color:var(--checkout-summary-text)] mb-2 leading-snug font-bold">
               Katina Basil Showcase
             </h3>
-            <p className="font-body-md text-xs text-[#F4F4F2]/85 mb-8 font-sans">
+            <p className="font-body-md text-xs text-[color:var(--checkout-summary-text)]/85 mb-8 font-sans">
               Ciela Resort, Lusaka • Private Allocations Access
             </p>
 
             {/* Calculations lines list */}
-            <div className="flex flex-col gap-4 border-t border-[#F4F4F2]/25 pt-6">
+            <div className="flex flex-col gap-4 border-t border-[color:var(--checkout-border)] pt-6">
               <div className="flex justify-between items-center text-xs sm:text-sm font-sans">
-                <span className="text-[#F4F4F2]/80 font-medium">
+                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">
                   {selectedPackage.name} (x{registrationData.quantity})
                 </span>
-                <span className="text-[#F4F4F2] font-bold">
+                <span className="text-[color:var(--checkout-summary-text)] font-bold">
                   K{basePriceTimesQty.toLocaleString()}.00
                 </span>
               </div>
 
               <div className="flex justify-between items-center text-xs sm:text-sm font-sans">
-                <span className="text-[#F4F4F2]/80 font-medium">Private Afterparty</span>
+                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Private Afterparty</span>
                 <span className="text-[#4E1413] font-label-caps text-[10px] bg-[#F4F4F2] border border-[#F4F4F2] px-2 py-0.5 font-bold">
                   Included
                 </span>
               </div>
 
               <div className="flex justify-between items-center text-xs sm:text-sm font-sans">
-                <span className="text-[#F4F4F2]/80 font-medium">Taxes &amp; Fees (20%)</span>
-                <span className="text-[#F4F4F2] font-bold">
+                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Taxes &amp; Fees (20%)</span>
+                <span className="text-[color:var(--checkout-summary-text)] font-bold">
                   K{taxesFees.toLocaleString()}.00
                 </span>
               </div>
             </div>
 
             {/* Grand Total output with maroon coloring */}
-            <div className="flex justify-between items-end border-t border-[#F4F4F2]/25 mt-8 pt-8">
-              <span className="font-label-caps text-xs text-[#F4F4F2]/70 uppercase tracking-widest font-bold">
+            <div className="flex justify-between items-end border-t border-[color:var(--checkout-border)] mt-8 pt-8">
+              <span className="font-label-caps text-xs text-[color:var(--checkout-summary-text)]/70 uppercase tracking-widest font-bold">
                 Total
               </span>
-              <span className="font-headline-md text-3xl sm:text-4xl text-[#F4F4F2] font-bold">
+              <span className="font-headline-md text-3xl sm:text-4xl text-[color:var(--checkout-summary-text)] font-bold">
                 K{grandTotal.toLocaleString()}.00
               </span>
             </div>
@@ -168,18 +168,18 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
         {/* RIGHT COLUMN: Interactive Payment Form */}
         <div className="lg:col-span-7 order-1 lg:order-2 flex flex-col gap-10">
           <div>
-            <span className="font-label-caps text-[10px] text-[#F4F4F2]/80 tracking-[0.3em] uppercase block mb-2 font-bold">SECURE ENDPOINT</span>
-            <h1 className="font-display text-4xl sm:text-5xl text-[#F4F4F2] mb-2 leading-none font-bold">
+            <span className="font-label-caps text-[10px] text-[color:var(--checkout-text)]/80 tracking-[0.3em] uppercase block mb-2 font-bold">SECURE ENDPOINT</span>
+            <h1 className="font-display text-4xl sm:text-5xl text-[color:var(--checkout-text)] mb-2 leading-none font-bold">
               Secure Checkout
             </h1>
-            <p className="font-body-md text-xs sm:text-sm text-[#F4F4F2]/85 leading-relaxed font-sans">
+            <p className="font-body-md text-xs sm:text-sm text-[color:var(--checkout-text)]/85 leading-relaxed font-sans">
               Complete your certified seat reservation coordinates for the upcoming Katina Basil showcase.
             </p>
           </div>
 
           {/* Payment Method Tabs */}
           <div className="flex flex-col gap-4 font-sans">
-            <span className="font-label-caps text-[10px] text-[#F4F4F2]/75 uppercase tracking-widest leading-none font-bold">
+            <span className="font-label-caps text-[10px] text-[color:var(--checkout-text)]/75 uppercase tracking-widest leading-none font-bold">
               Payment Method
             </span>
             <div className="grid grid-cols-3 gap-4">
@@ -190,18 +190,18 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                 onClick={() => setMethod('card')}
                 className={`relative flex flex-col items-center justify-center gap-2.5 py-4 border rounded-none transition-all duration-300 cursor-pointer ${
                   method === 'card'
-                    ? 'border-[#F4F4F2] bg-[#F4F4F2]/10 text-[#F4F4F2]'
-                    : 'border-[#F4F4F2]/25 hover:border-[#F4F4F2]/50 bg-transparent text-[#F4F4F2]/70 hover:text-[#F4F4F2]'
+                    ? 'border-[color:var(--checkout-text)] bg-[color:var(--checkout-text)]/10 text-[color:var(--checkout-text)]'
+                    : 'border-[color:var(--checkout-border)] hover:border-[color:var(--checkout-text)]/50 bg-transparent text-[color:var(--checkout-text)]/70 hover:text-[color:var(--checkout-text)]'
                 }`}
               >
-                <CreditCard className={`w-5 h-5 ${method === 'card' ? 'text-[#F4F4F2]' : ''}`} />
-                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'card' ? 'text-[#F4F4F2] font-bold' : ''}`}>
+                <CreditCard className={`w-5 h-5 ${method === 'card' ? 'text-[color:var(--checkout-text)]' : ''}`} />
+                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'card' ? 'text-[color:var(--checkout-text)] font-bold' : ''}`}>
                   Bank Card
                 </span>
                 
                 {/* Active Dot Indicator */}
                 {method === 'card' && (
-                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[#F4F4F2] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
+                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[color:var(--checkout-text)] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
                 )}
               </button>
 
@@ -211,17 +211,17 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                 onClick={() => setMethod('applepay')}
                 className={`relative flex flex-col items-center justify-center gap-2.5 py-4 border rounded-none transition-all duration-300 cursor-pointer ${
                   method === 'applepay'
-                    ? 'border-[#F4F4F2] bg-[#F4F4F2]/10 text-[#F4F4F2]'
-                    : 'border-[#F4F4F2]/25 hover:border-[#F4F4F2]/50 bg-transparent text-[#F4F4F2]/70 hover:text-[#F4F4F2]'
+                    ? 'border-[color:var(--checkout-text)] bg-[color:var(--checkout-text)]/10 text-[color:var(--checkout-text)]'
+                    : 'border-[color:var(--checkout-border)] hover:border-[color:var(--checkout-text)]/50 bg-transparent text-[color:var(--checkout-text)]/70 hover:text-[color:var(--checkout-text)]'
                 }`}
               >
-                <Wallet className={`w-5 h-5 ${method === 'applepay' ? 'text-[#F4F4F2]' : ''}`} />
-                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'applepay' ? 'text-[#F4F4F2] font-bold' : ''}`}>
+                <Wallet className={`w-5 h-5 ${method === 'applepay' ? 'text-[color:var(--checkout-text)]' : ''}`} />
+                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'applepay' ? 'text-[color:var(--checkout-text)] font-bold' : ''}`}>
                   Apple Pay
                 </span>
 
                 {method === 'applepay' && (
-                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[#F4F4F2] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
+                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[color:var(--checkout-text)] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
                 )}
               </button>
 
@@ -231,17 +231,17 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                 onClick={() => setMethod('mobilemoney')}
                 className={`relative flex flex-col items-center justify-center gap-2.5 py-4 border rounded-none transition-all duration-300 cursor-pointer ${
                   method === 'mobilemoney'
-                    ? 'border-[#F4F4F2] bg-[#F4F4F2]/10 text-[#F4F4F2]'
-                    : 'border-[#F4F4F2]/25 hover:border-[#F4F4F2]/50 bg-transparent text-[#F4F4F2]/70 hover:text-[#F4F4F2]'
+                    ? 'border-[color:var(--checkout-text)] bg-[color:var(--checkout-text)]/10 text-[color:var(--checkout-text)]'
+                    : 'border-[color:var(--checkout-border)] hover:border-[color:var(--checkout-text)]/50 bg-transparent text-[color:var(--checkout-text)]/70 hover:text-[color:var(--checkout-text)]'
                 }`}
               >
-                <Smartphone className={`w-5 h-5 ${method === 'mobilemoney' ? 'text-[#F4F4F2]' : ''}`} />
-                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'mobilemoney' ? 'text-[#F4F4F2] font-bold' : ''}`}>
+                <Smartphone className={`w-5 h-5 ${method === 'mobilemoney' ? 'text-[color:var(--checkout-text)]' : ''}`} />
+                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'mobilemoney' ? 'text-[color:var(--checkout-text)] font-bold' : ''}`}>
                   Mobile Money
                 </span>
 
                 {method === 'mobilemoney' && (
-                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[#F4F4F2] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
+                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[color:var(--checkout-text)] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
                 )}
               </button>
 
@@ -264,19 +264,19 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                     onFocus={() => setActiveInput('cardNumber')}
                     onBlur={() => setActiveInput(null)}
                     placeholder="0000 0000 0000 0000"
-                    className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[#F4F4F2]/30 px-0 py-2.5 text-[#F4F4F2] focus:outline-none focus:ring-0 focus:border-[#F4F4F2] transition-colors text-sm md:text-base font-mono tracking-widest"
+                    className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[color:var(--checkout-border)] px-0 py-2.5 text-[color:var(--checkout-text)] focus:outline-none focus:ring-0 focus:border-[color:var(--checkout-text)] transition-colors text-sm md:text-base font-mono tracking-widest"
                   />
                   <label
                     htmlFor="cardNumber"
                     className={`absolute left-0 transition-all duration-300 text-[10px] tracking-widest uppercase font-label-caps ${
                       activeInput === 'cardNumber' || cardNumber
-                        ? '-top-3 text-[#F4F4F2]'
-                        : 'top-5 text-[#F4F4F2]/60'
+                        ? '-top-3 text-[color:var(--checkout-text)]'
+                        : 'top-5 text-[color:var(--checkout-text)]/60'
                     }`}
                   >
                     Card Number
                   </label>
-                  <Lock className="absolute right-0 top-6 w-4 h-4 text-[#F4F4F2]/50 pointer-events-none" />
+                  <Lock className="absolute right-0 top-6 w-4 h-4 text-[color:var(--checkout-text)]/50 pointer-events-none" />
                 </div>
 
                 {/* Expiry and CVC Grid */}
@@ -292,14 +292,14 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                       onFocus={() => setActiveInput('expiry')}
                       onBlur={() => setActiveInput(null)}
                       placeholder="MM/YY"
-                      className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[#F4F4F2]/30 px-0 py-2.5 text-[#F4F4F2] focus:outline-none focus:ring-0 focus:border-[#F4F4F2] transition-colors text-sm md:text-base font-mono tracking-wide"
+                      className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[color:var(--checkout-border)] px-0 py-2.5 text-[color:var(--checkout-text)] focus:outline-none focus:ring-0 focus:border-[color:var(--checkout-text)] transition-colors text-sm md:text-base font-mono tracking-wide"
                     />
                     <label
                       htmlFor="expiry"
                       className={`absolute left-0 transition-all duration-300 text-[10px] tracking-widest uppercase font-label-caps ${
                         activeInput === 'expiry' || expiryDate
-                          ? '-top-3 text-[#F4F4F2]'
-                          : 'top-5 text-[#F4F4F2]/60'
+                          ? '-top-3 text-[color:var(--checkout-text)]'
+                          : 'top-5 text-[color:var(--checkout-text)]/60'
                       }`}
                     >
                       Expiry Date
@@ -317,14 +317,14 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                       onFocus={() => setActiveInput('cvc')}
                       onBlur={() => setActiveInput(null)}
                       placeholder="CVC"
-                      className="peer/cvc w-full bg-transparent border-0 border-b-[0.5px] border-[#F4F4F2]/30 px-0 py-2.5 text-[#F4F4F2] focus:outline-none focus:ring-0 focus:border-[#F4F4F2] transition-colors text-sm md:text-base font-mono tracking-wide"
+                      className="peer/cvc w-full bg-transparent border-0 border-b-[0.5px] border-[color:var(--checkout-border)] px-0 py-2.5 text-[color:var(--checkout-text)] focus:outline-none focus:ring-0 focus:border-[color:var(--checkout-text)] transition-colors text-sm md:text-base font-mono tracking-wide"
                     />
                     <label
                       htmlFor="cvc"
                       className={`absolute left-0 transition-all duration-300 text-[10px] tracking-widest uppercase font-label-caps ${
                         activeInput === 'cvc' || securityCode
-                          ? '-top-3 text-[#F4F4F2]'
-                          : 'top-5 text-[#F4F4F2]/60'
+                          ? '-top-3 text-[color:var(--checkout-text)]'
+                          : 'top-5 text-[color:var(--checkout-text)]/60'
                       }`}
                     >
                       Security Code
@@ -343,14 +343,14 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                     onFocus={() => setActiveInput('cardHolder')}
                     onBlur={() => setActiveInput(null)}
                     placeholder="Name exactly as printed on card"
-                    className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[#F4F4F2]/30 px-0 py-2.5 text-[#F4F4F2] focus:outline-none focus:ring-0 focus:border-[#F4F4F2] transition-colors text-sm md:text-base"
+                    className="peer w-full bg-transparent border-0 border-b-[0.5px] border-[color:var(--checkout-border)] px-0 py-2.5 text-[color:var(--checkout-text)] focus:outline-none focus:ring-0 focus:border-[color:var(--checkout-text)] transition-colors text-sm md:text-base"
                   />
                   <label
                     htmlFor="cardHolder"
                     className={`absolute left-0 transition-all duration-300 text-[10px] tracking-widest uppercase font-label-caps ${
                       activeInput === 'cardHolder' || cardholderName
-                        ? '-top-3 text-[#F4F4F2]'
-                        : 'top-5 text-[#F4F4F2]/60'
+                        ? '-top-3 text-[color:var(--checkout-text)]'
+                        : 'top-5 text-[color:var(--checkout-text)]/60'
                     }`}
                   >
                     Cardholder Name
@@ -358,11 +358,11 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
                 </div>
               </>
             ) : (
-              <div className="bg-[#F4F4F2]/5 border border-[#F4F4F2]/10 p-6 text-center rounded-none my-4 font-sans max-w-lg">
-                <p className="text-sm text-[#F4F4F2] mb-3 leading-relaxed">
+              <div className="bg-[#F4F4F2]/5 border border-[color:var(--checkout-border)] p-6 text-center rounded-none my-4 font-sans max-w-lg">
+                <p className="text-sm text-[color:var(--checkout-text)] mb-3 leading-relaxed">
                   You are checking out using <strong>{method === 'applepay' ? 'Apple Pay' : 'Mobile Money'}</strong>.
                 </p>
-                <p className="text-xs text-[#F4F4F2]/60">
+                <p className="text-xs text-[color:var(--checkout-text)]/60">
                   Transactions are authorized using secure device hardware biometric chips.
                 </p>
               </div>
@@ -373,16 +373,16 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
               <button
                 type="submit"
                 disabled={isProcessingPayment}
-                className="w-full bg-[#F4F4F2] hover:bg-white hover:shadow-[0_0_20px_rgba(244,244,242,0.3)] border border-[#F4F4F2] text-[#4E1413] py-5 px-8 font-label-caps text-xs tracking-[0.2em] uppercase rounded-none transition-all duration-500 flex justify-center items-center gap-3 cursor-pointer group font-bold disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full bg-[color:var(--checkout-submit-bg)] hover:bg-[color:var(--checkout-submit-hover-bg)] hover:shadow-[0_0_20px_rgba(78,20,19,0.3)] border border-[color:var(--checkout-submit-border)] hover:border-black text-[color:var(--checkout-submit-text)] hover:text-[color:var(--checkout-submit-hover-text)] py-5 px-8 font-label-caps text-xs tracking-[0.2em] uppercase rounded-none transition-all duration-500 flex justify-center items-center gap-3 cursor-pointer group font-bold disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 <span>{isProcessingPayment ? 'Processing Payment...' : 'Authorize Payment'}</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform duration-500 text-[#4E1413] shrink-0" />
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform duration-500 text-[color:var(--checkout-submit-text)] group-hover:text-[color:var(--checkout-submit-hover-text)] shrink-0" />
               </button>
 
               {/* End-to-end security tag */}
-              <div className="flex items-center justify-center gap-2 mt-6 text-[#F4F4F2]/60">
-                <ShieldCheck className="w-4 h-4 text-[#F4F4F2]" />
-                <span className="font-label-caps text-[10px] uppercase tracking-widest text-[#F4F4F2]/80">
+              <div className="flex items-center justify-center gap-2 mt-6 text-[color:var(--checkout-text)]/60">
+                <ShieldCheck className="w-4 h-4 text-[color:var(--checkout-text)]" />
+                <span className="font-label-caps text-[10px] uppercase tracking-widest text-[color:var(--checkout-text)]/80">
                   Encrypted end-to-end transaction
                 </span>
               </div>

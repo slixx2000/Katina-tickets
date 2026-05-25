@@ -8,14 +8,14 @@ interface LandingHeroProps {
 
 export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHeroProps) {
   return (
-    <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-[#4E5440] via-[#666E54] to-[#2E3226]">
+    <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-[linear-gradient(180deg,var(--hero-bg-start),var(--hero-bg-mid)_48%,var(--hero-bg-end))]">
       {/* Radiant Glow for luxury depth */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85vw] h-[85vw] max-w-[900px] max-h-[900px] rounded-full bg-[#F4F4F2]/[0.06] blur-[130px] pointer-events-none z-0 animate-pulse" style={{ animationDuration: '9s' }} />
-      <div className="absolute top-1/4 left-1/3 w-[50vw] h-[50vw] max-w-[500px] rounded-full bg-[#800020]/[0.02] blur-[100px] pointer-events-none z-0" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85vw] h-[85vw] max-w-[900px] max-h-[900px] rounded-full bg-[color:var(--hero-glow)] blur-[130px] pointer-events-none z-0 animate-pulse" style={{ animationDuration: '9s' }} />
+      <div className="absolute top-1/4 left-1/3 w-[50vw] h-[50vw] max-w-[500px] rounded-full bg-[color:var(--hero-accent-glow)] blur-[100px] pointer-events-none z-0" />
       
       {/* Colossal Typographic Background "KATINA BASIL" in Bank Gothic acting as a luxury texture */}
       <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden pointer-events-none select-none z-0 p-4">
-        <h1 className="text-[12vw] md:text-[14vw] font-display font-bold text-[#F4F4F2]/[0.04] uppercase tracking-[0.15em] leading-[1.1] text-center select-none">
+        <h1 className="text-[12vw] md:text-[14vw] font-display font-bold uppercase tracking-[0.15em] leading-[1.1] text-center select-none" style={{ color: 'var(--hero-cta-text)', opacity: 0.04 }}>
           KATINA
           <br className="sm:hidden" />
           <span className="sm:inline hidden"> </span>
@@ -32,19 +32,19 @@ export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHero
           className="flex flex-col items-center"
         >
           {/* Subtle Accent Card label */}
-          <span className="text-[#F4F4F2]/75 tracking-[0.5em] font-label-caps text-[10px] md:text-[12px] mb-6 block select-none">
+          <span className="text-[color:var(--hero-text-muted)] tracking-[0.5em] font-label-caps text-[10px] md:text-[12px] mb-6 block select-none">
             HAUTE COUTURE SHOWCASE
           </span>
 
           {/* Elegant Front-row Brand Title serving as Logo Presence */}
-          <h2 className="font-display text-4xl sm:text-5xl md:text-7xl tracking-[0.3em] text-[#F4F4F2] uppercase leading-none font-bold select-none drop-shadow-lg mb-8">
+          <h2 className="font-display text-4xl sm:text-5xl md:text-7xl tracking-[0.3em] text-[color:var(--hero-text)] uppercase leading-none font-bold select-none drop-shadow-lg mb-8">
             KATINA BASIL
           </h2>
 
-          <div className="w-24 h-[1px] bg-[#F4F4F2]/40 mb-8" />
+          <div className="w-24 h-[1px] bg-[color:var(--hero-divider)] mb-8" />
 
           {/* Event subtitle */}
-          <p className="font-label-caps text-[#F4F4F2]/80 text-[10px] md:text-xs mb-12 tracking-[0.35em] uppercase max-w-xl leading-relaxed">
+          <p className="font-label-caps text-[color:var(--hero-text-muted)] text-[10px] md:text-xs mb-12 tracking-[0.35em] uppercase max-w-xl leading-relaxed">
             LUSAKA | FALL WINTER 2026 | CIELA RESORT
           </p>
 
@@ -52,7 +52,7 @@ export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHero
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
               onClick={onBuyTickets}
-              className="relative px-12 py-5 bg-[#F4F4F2] border border-[#F4F4F2] hover:border-[#800020] text-[#4E1413] hover:text-[#F4F4F2] font-label-caps tracking-[0.25em] transition-all duration-500 ease-out cursor-pointer hover:shadow-[0_0_30px_rgba(128,0,32,0.4)] hover:bg-[#800020] font-bold group"
+              className="relative px-12 py-5 bg-[var(--hero-cta-bg)] border border-[var(--hero-cta-border)] text-[var(--hero-cta-text)] hover:text-[var(--hero-cta-hover-text)] hover:border-[var(--hero-cta-hover-border)] font-label-caps tracking-[0.25em] transition-all duration-500 ease-out cursor-pointer hover:shadow-[0_0_30px_rgba(78,20,19,0.38)] hover:bg-[var(--hero-cta-hover-bg)] font-bold group"
             >
                BUY TICKETS
             </button>
@@ -60,7 +60,7 @@ export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHero
             {onExploreMore && (
               <button
                 onClick={onExploreMore}
-                className="px-8 py-5 text-[#F4F4F2]/80 hover:text-[#F4F4F2] font-label-caps tracking-[0.2em] transition-all duration-300 cursor-pointer"
+                className="px-8 py-5 text-black hover:text-black font-label-caps tracking-[0.2em] transition-all duration-300 cursor-pointer"
               >
                 Explore Concept
               </button>
