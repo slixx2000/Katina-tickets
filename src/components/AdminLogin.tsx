@@ -9,6 +9,8 @@ interface AdminLoginProps {
 export default function AdminLogin({ onSuccess }: AdminLoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,6 +18,7 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setMfaRequired(false);
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -45,11 +48,15 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ accessToken }),
+        body: JSON.stringify({ accessToken, mfaCode: mfaCode.trim() || undefined }),
       });
 
       if (!exchangeResponse.ok) {
         const payload = await exchangeResponse.json().catch(() => null);
+        if (payload?.mfaRequired) {
+          setMfaRequired(true);
+          throw new Error('Enter your authenticator or recovery code to continue.');
+        }
         throw new Error(payload?.message || 'Could not create secure server session.');
       }
 
@@ -70,9 +77,20 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
         <input value={email} onChange={e => setEmail(e.target.value)} className="w-full mb-4 p-2 bg-transparent border border-[color:var(--app-border)] text-[var(--app-panel-text)]" />
         <label className="block text-sm text-[var(--app-panel-text)]/80 mb-2">Password</label>
         <input value={password} onChange={e => setPassword(e.target.value)} type="password" className="w-full mb-4 p-2 bg-transparent border border-[color:var(--app-border)] text-[var(--app-panel-text)]" />
+        {mfaRequired && (
+          <>
+            <label className="block text-sm text-[var(--app-panel-text)]/80 mb-2">MFA Code</label>
+            <input
+              value={mfaCode}
+              onChange={e => setMfaCode(e.target.value)}
+              className="w-full mb-4 p-2 bg-transparent border border-[color:var(--app-border)] text-[var(--app-panel-text)]"
+              placeholder="123456 or backup code"
+            />
+          </>
+        )}
         {error && <p className="text-xs text-red-300 mb-2">{error}</p>}
         <button type="submit" disabled={loading} className="w-full bg-[var(--app-cta)] text-[var(--app-on-cta)] py-2 font-bold hover:bg-[var(--app-cta-hover)] transition-colors">{loading ? 'Signing in…' : 'Sign In'}</button>
-        <p className="text-xs text-[var(--app-panel-text)]/70 mt-3">Uses Supabase Auth; replace with MFA or SSO for production.</p>
+        <p className="text-xs text-[var(--app-panel-text)]/70 mt-3">Uses Supabase Auth with server-enforced session controls and MFA challenge when required.</p>
       </form>
     </div>
   );

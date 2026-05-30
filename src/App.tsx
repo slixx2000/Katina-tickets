@@ -301,6 +301,10 @@ export default function App() {
     }
   };
 
+  const refreshCurrentUser = async () => {
+    setCurrentUser(await fetchServerSession());
+  };
+
   return (
     <div className="relative min-h-screen bg-[var(--app-canvas)] text-[var(--app-text)] selection:bg-[var(--app-cta-hover)] selection:text-[var(--app-on-cta)] flex flex-col justify-between overflow-x-hidden transition-all duration-500">
       
@@ -392,8 +396,10 @@ export default function App() {
                 <AdminDashboard 
                   stats={adminStats} 
                   packages={packages} 
+                  currentUser={currentUser}
                   onBackToMain={() => setCurrentScreen('landing')}
                   onUpdateInventory={(updatedPkgs) => setPackages(updatedPkgs)}
+                  onSessionRefresh={refreshCurrentUser}
                   onSignOut={async () => {
                     await clearServerSession();
                     setCurrentUser(null);

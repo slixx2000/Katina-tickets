@@ -5,16 +5,20 @@ import {
   Scan, Check, Play, UserCheck, ShieldAlert, Award, TrendingUp, X, RefreshCw
 } from 'lucide-react';
 import { AdminStats, Transaction, TicketPackage, RegistrationData } from '../types';
+import MfaSettingsPanel from './MfaSettingsPanel';
+import type { AppSessionUser } from '../auth/session';
 
 interface AdminDashboardProps {
   stats: AdminStats;
   packages: TicketPackage[];
+  currentUser: AppSessionUser;
   onBackToMain: () => void;
   onUpdateInventory: (updatedPkgs: TicketPackage[]) => void;
   onSignOut: () => void;
+  onSessionRefresh: () => Promise<void>;
 }
 
-export default function AdminDashboard({ stats, packages, onBackToMain, onUpdateInventory, onSignOut }: AdminDashboardProps) {
+export default function AdminDashboard({ stats, packages, currentUser, onBackToMain, onUpdateInventory, onSignOut, onSessionRefresh }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'7D' | '30D' | 'YTD'>('30D');
   const [showGuestList, setShowGuestList] = useState(false);
   const [showInventoryCustomizer, setShowInventoryCustomizer] = useState(false);
@@ -142,6 +146,8 @@ export default function AdminDashboard({ stats, packages, onBackToMain, onUpdate
           </button>
         </div>
       </div>
+
+      <MfaSettingsPanel currentUser={currentUser} onSessionRefresh={onSessionRefresh} />
 
       {/* THREE Core KPI Widgets Grid Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 relative z-10 font-sans">

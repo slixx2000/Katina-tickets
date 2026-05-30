@@ -5,7 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies';
 import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index';
-import { logAuditEvent } from './auth/audit';
+import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit';
 import { InMemorySessionStore, type AuthPrincipal } from './auth/session-store';
 import type { SessionStore } from './auth/session-store';
 import { InMemoryAuthRepository } from './auth/repository';
@@ -16,6 +16,15 @@ import { isPrismaAvailable, prisma } from './lib/prisma';
 import { PrismaSessionStore } from './auth/prisma-session-store';
 import { PrismaAuthRepository } from './auth/prisma-repository';
 import { canUseLencoGateway, createLencoCheckoutSession, parseLencoWebhookEvent } from './lib/lenco';
+import {
+  buildOtpAuthUri,
+  decryptMfaSecret,
+  encryptMfaSecret,
+  generateBackupCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  verifyTotpCode,
+} from './auth/mfa';
 
 type LencoPaymentRequest = {
   amount?: unknown;
@@ -32,10 +41,24 @@ type RequestWithRawBody = Request & {
 
 type AuthExchangeRequest = {
   accessToken?: unknown;
+  mfaCode?: unknown;
 };
 
 type AuthRefreshRequest = {
   refreshToken?: unknown;
+};
+
+type MfaEnrollRequest = {
+  label?: unknown;
+};
+
+type MfaActivateRequest = {
+  factorId?: unknown;
+  code?: unknown;
+};
+
+type MfaDisableRequest = {
+  code?: unknown;
 };
 
 type SessionPayload = {
@@ -79,6 +102,19 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function normalizeMfaCode(value: unknown) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function roleRequiresMfa(role: AppRole) {
+  return MFA_RECOMMENDED_ROLES.includes(role);
+}
+
 function getAuthCookieValue(request: Request, cookieName: string) {
   const cookieHeader = request.headers.cookie;
   if (!cookieHeader) return null;
@@ -106,6 +142,135 @@ function setAuthCookies(response: Response, accessToken: string, refreshToken: s
 
 function clearAuthCookies(response: Response) {
   response.setHeader('Set-Cookie', [buildClearedCookie(sessionCookieName), buildClearedCookie(refreshCookieName)]);
+}
+
+async function emitAuditEvent(event: AuditEvent) {
+  const payload = buildAuditEvent(event);
+  logAuditEvent(event);
+
+  try {
+    await authRepository.recordAuditLog({
+      action: payload.name,
+      actorUserId: payload.actorUserId,
+      targetUserId: payload.targetUserId,
+      resourceType: payload.resourceType,
+      resourceId: payload.resourceId,
+      ipAddress: payload.ipAddress,
+      userAgent: payload.userAgent,
+      metadata: payload.metadata,
+    });
+  } catch (error) {
+    console.warn('[audit] Failed to persist audit event', error);
+  }
+}
+
+async function resolveUserHasActiveMfaFactor(userId: string) {
+  if (!isPrismaAvailable()) {
+    return false;
+  }
+
+  const count = await prisma.mfaFactor.count({
+    where: {
+      userId,
+      type: 'TOTP',
+      status: 'ACTIVE',
+      revokedAt: null,
+    },
+  });
+
+  return count > 0;
+}
+
+async function verifyUserMfaCode(userId: string, code: string) {
+  if (!isPrismaAvailable()) {
+    return false;
+  }
+
+  const factors = await prisma.mfaFactor.findMany({
+    where: {
+      userId,
+      status: 'ACTIVE',
+      revokedAt: null,
+      type: { in: ['TOTP', 'BACKUP_CODE'] },
+    },
+    select: {
+      id: true,
+      type: true,
+      secret: true,
+    },
+  });
+
+  for (const factor of factors) {
+    if (factor.type === 'TOTP' && factor.secret) {
+      try {
+        const secret = decryptMfaSecret(factor.secret);
+        if (verifyTotpCode(secret, code, { window: 1 })) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (factor.type === 'BACKUP_CODE' && factor.secret) {
+      if (hashRecoveryCode(code) === factor.secret) {
+        await prisma.mfaFactor.update({
+          where: { id: factor.id },
+          data: {
+            status: 'DISABLED',
+            revokedAt: new Date(),
+            secret: null,
+          },
+        });
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function requireMfaForPrincipal(request: Request, response: Response, principal: AuthPrincipal) {
+  if (!roleRequiresMfa(principal.role)) {
+    return true;
+  }
+
+  const userHasActiveMfa = await resolveUserHasActiveMfaFactor(principal.userId);
+  if (!userHasActiveMfa) {
+    response.status(403).json({
+      success: false,
+      message: 'MFA enrollment is required for this role.',
+      mfaRequired: true,
+      mfaEnrolled: false,
+    });
+    await emitAuditEvent({
+      name: 'MFA_FAILED',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      metadata: { reason: 'MFA_ENROLLMENT_REQUIRED', role: principal.role },
+      request,
+    });
+    return false;
+  }
+
+  if (!principal.mfaEnabled) {
+    response.status(403).json({
+      success: false,
+      message: 'MFA verification is required for this role.',
+      mfaRequired: true,
+      mfaEnrolled: true,
+    });
+    await emitAuditEvent({
+      name: 'MFA_FAILED',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      metadata: { reason: 'MFA_VERIFICATION_REQUIRED', role: principal.role },
+      request,
+    });
+    return false;
+  }
+
+  return true;
 }
 
 function buildSessionPayload(session: { principal: AuthPrincipal; expiresAt: Date; refreshExpiresAt: Date } | null): SessionPayload {
@@ -562,6 +727,7 @@ app.get('/api/auth/session', async (request: Request, response: Response) => {
 app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const body = request.body as AuthExchangeRequest;
   const accessToken = typeof body?.accessToken === 'string' ? body.accessToken : null;
+  const providedMfaCode = normalizeMfaCode(body?.mfaCode);
 
   if (!accessToken) {
     response.status(400).json({ success: false, message: 'An access token is required.' });
@@ -572,18 +738,53 @@ app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins
   let principal: AuthPrincipal | null = null;
 
   if (verifiedUser) {
-    principal = {
-      userId: verifiedUser.id,
-      email: verifiedUser.email,
-      role: verifiedUser.role,
-      mfaEnabled: verifiedUser.mfaEnabled,
-    };
-    await authRepository.upsertUserFromOAuth({
+    const user = await authRepository.upsertUserFromOAuth({
       id: verifiedUser.id,
       email: verifiedUser.email,
       role: verifiedUser.role,
       mfaEnabled: verifiedUser.mfaEnabled,
     });
+
+    const hasActiveMfaFactor = roleRequiresMfa(user.role)
+      ? await resolveUserHasActiveMfaFactor(user.id)
+      : false;
+
+    if (hasActiveMfaFactor) {
+      if (!providedMfaCode || !(await verifyUserMfaCode(user.id, providedMfaCode))) {
+        await emitAuditEvent({
+          name: 'MFA_FAILED',
+          actorUserId: user.id,
+          targetUserId: user.id,
+          metadata: { reason: 'MFA_CHALLENGE_FAILED', role: user.role },
+          request,
+        });
+        response.status(401).json({
+          success: false,
+          message: 'MFA code is required to complete sign-in.',
+          mfaRequired: true,
+        });
+        return;
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { mfaEnabled: true },
+      });
+      await emitAuditEvent({
+        name: 'MFA_VERIFIED',
+        actorUserId: user.id,
+        targetUserId: user.id,
+        metadata: { source: 'AUTH_EXCHANGE' },
+        request,
+      });
+    }
+
+    principal = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      mfaEnabled: hasActiveMfaFactor ? true : user.mfaEnabled,
+    };
   } else if (isDevAuthBypassEnabled() && accessToken.startsWith('dev-session:')) {
     const [, email = '', role = 'SUPPORT'] = accessToken.split(':');
     if (!isNonEmptyString(email)) {
@@ -600,13 +801,18 @@ app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins
   }
 
   if (!principal) {
+    await emitAuditEvent({
+      name: 'LOGIN_FAILED',
+      metadata: { reason: 'ACCESS_TOKEN_VERIFICATION_FAILED' },
+      request,
+    });
     response.status(401).json({ success: false, message: 'Unable to verify the provided access token.' });
     return;
   }
 
   const bundle = await sessionStore.createSession(principal);
   setAuthCookies(response, bundle.accessToken, bundle.refreshToken, bundle.expiresAt, bundle.refreshExpiresAt);
-  logAuditEvent({
+  await emitAuditEvent({
     name: 'LOGIN_SUCCESS',
     actorUserId: principal.userId,
     targetUserId: principal.userId,
@@ -628,7 +834,7 @@ app.post('/api/auth/logout', authRateLimiter, async (request: Request, response:
   if (token) {
     const session = await sessionStore.getSessionByAccessToken(token);
     if (session) {
-      logAuditEvent({
+      await emitAuditEvent({
         name: 'LOGOUT',
         actorUserId: session.principal.userId,
         targetUserId: session.principal.userId,
@@ -670,6 +876,320 @@ app.post('/api/auth/refresh', authRateLimiter, createOriginGuard(allowedOrigins)
   });
 });
 
+app.post('/api/auth/mfa/enroll', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'MFA enrollment requires persistent storage.' });
+    return;
+  }
+
+  const body = request.body as MfaEnrollRequest;
+  const label = isNonEmptyString(body?.label) ? body.label.trim() : 'Authenticator App';
+  const secret = generateTotpSecret();
+  let encryptedSecret: string;
+  try {
+    encryptedSecret = encryptMfaSecret(secret);
+  } catch (error) {
+    response.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unable to encrypt MFA secret.',
+    });
+    return;
+  }
+  const issuer = process.env.MFA_TOTP_ISSUER || 'Katina Tickets';
+
+  await prisma.mfaFactor.updateMany({
+    where: {
+      userId: principal.userId,
+      type: 'TOTP',
+      status: 'PENDING',
+      revokedAt: null,
+    },
+    data: {
+      status: 'DISABLED',
+      revokedAt: new Date(),
+    },
+  });
+
+  const factor = await prisma.mfaFactor.create({
+    data: {
+      userId: principal.userId,
+      type: 'TOTP',
+      status: 'PENDING',
+      label,
+      secret: encryptedSecret,
+    },
+  });
+
+  await emitAuditEvent({
+    name: 'MFA_ENROLLED',
+    actorUserId: principal.userId,
+    targetUserId: principal.userId,
+    metadata: { factorId: factor.id, state: 'PENDING' },
+    request,
+  });
+
+  response.json({
+    success: true,
+    factorId: factor.id,
+    secret,
+    otpauthUrl: buildOtpAuthUri({
+      issuer,
+      accountName: principal.email,
+      secret,
+    }),
+  });
+});
+
+app.post('/api/auth/mfa/activate', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'MFA activation requires persistent storage.' });
+    return;
+  }
+
+  const body = request.body as MfaActivateRequest;
+  const factorId = isNonEmptyString(body?.factorId) ? body.factorId.trim() : null;
+  const code = normalizeMfaCode(body?.code);
+  if (!factorId || !code) {
+    response.status(400).json({ success: false, message: 'factorId and code are required.' });
+    return;
+  }
+
+  const factor = await prisma.mfaFactor.findFirst({
+    where: {
+      id: factorId,
+      userId: principal.userId,
+      type: 'TOTP',
+      status: 'PENDING',
+      revokedAt: null,
+    },
+    select: {
+      id: true,
+      secret: true,
+    },
+  });
+
+  if (!factor?.secret) {
+    response.status(404).json({ success: false, message: 'Pending MFA factor not found.' });
+    return;
+  }
+
+  let decryptedSecret: string;
+  try {
+    decryptedSecret = decryptMfaSecret(factor.secret);
+  } catch {
+    response.status(500).json({ success: false, message: 'Stored MFA secret is unreadable.' });
+    return;
+  }
+  if (!verifyTotpCode(decryptedSecret, code, { window: 1 })) {
+    await emitAuditEvent({
+      name: 'MFA_FAILED',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      metadata: { reason: 'MFA_ACTIVATE_CODE_INVALID' },
+      request,
+    });
+    response.status(400).json({ success: false, message: 'Invalid MFA code.' });
+    return;
+  }
+
+  const backupCodes = generateBackupCodes(8);
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.mfaFactor.update({
+      where: { id: factor.id },
+      data: {
+        status: 'ACTIVE',
+        verifiedAt: now,
+      },
+    }),
+    prisma.mfaFactor.updateMany({
+      where: {
+        userId: principal.userId,
+        type: 'BACKUP_CODE',
+        revokedAt: null,
+      },
+      data: {
+        status: 'DISABLED',
+        revokedAt: now,
+      },
+    }),
+    prisma.user.update({
+      where: { id: principal.userId },
+      data: { mfaEnabled: true },
+    }),
+    ...backupCodes.map((backupCode) =>
+      prisma.mfaFactor.create({
+        data: {
+          userId: principal.userId,
+          type: 'BACKUP_CODE',
+          status: 'ACTIVE',
+          label: 'Recovery Code',
+          secret: hashRecoveryCode(backupCode),
+          verifiedAt: now,
+        },
+      }),
+    ),
+  ]);
+
+  await emitAuditEvent({
+    name: 'MFA_VERIFIED',
+    actorUserId: principal.userId,
+    targetUserId: principal.userId,
+    metadata: { source: 'MFA_ACTIVATE' },
+    request,
+  });
+
+  response.json({
+    success: true,
+    backupCodes,
+    message: 'MFA is now active. Save your recovery codes securely.',
+  });
+});
+
+app.post('/api/auth/mfa/disable', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'MFA management requires persistent storage.' });
+    return;
+  }
+
+  const body = request.body as MfaDisableRequest;
+  const code = normalizeMfaCode(body?.code);
+  if (!code) {
+    response.status(400).json({ success: false, message: 'MFA code is required.' });
+    return;
+  }
+
+  const verified = await verifyUserMfaCode(principal.userId, code);
+  if (!verified) {
+    await emitAuditEvent({
+      name: 'MFA_FAILED',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      metadata: { reason: 'MFA_DISABLE_CODE_INVALID' },
+      request,
+    });
+    response.status(400).json({ success: false, message: 'Invalid MFA code.' });
+    return;
+  }
+
+  await prisma.$transaction([
+    prisma.mfaFactor.updateMany({
+      where: {
+        userId: principal.userId,
+        status: { in: ['PENDING', 'ACTIVE'] },
+        revokedAt: null,
+      },
+      data: {
+        status: 'DISABLED',
+        revokedAt: new Date(),
+        secret: null,
+      },
+    }),
+    prisma.user.update({
+      where: { id: principal.userId },
+      data: { mfaEnabled: false },
+    }),
+  ]);
+
+  await emitAuditEvent({
+    name: 'SESSION_REVOKED',
+    actorUserId: principal.userId,
+    targetUserId: principal.userId,
+    metadata: { source: 'MFA_DISABLE' },
+    request,
+  });
+
+  response.json({ success: true, message: 'MFA has been disabled for this account.' });
+});
+
+app.get('/api/auth/mfa/status', async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.json({
+      success: true,
+      enrolled: false,
+      pending: false,
+      required: roleRequiresMfa(principal.role),
+      factorId: null,
+      label: null,
+      otpauthUrl: null,
+      secret: null,
+    });
+    return;
+  }
+
+  const factors = await prisma.mfaFactor.findMany({
+    where: {
+      userId: principal.userId,
+      revokedAt: null,
+      type: { in: ['TOTP', 'BACKUP_CODE'] },
+    },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      label: true,
+      secret: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const pendingFactor = factors.find((factor) => factor.type === 'TOTP' && factor.status === 'PENDING') ?? null;
+  const activeTotpFactor = factors.find((factor) => factor.type === 'TOTP' && factor.status === 'ACTIVE') ?? null;
+  const recoveryCodeCount = factors.filter((factor) => factor.type === 'BACKUP_CODE' && factor.status === 'ACTIVE').length;
+
+  let secret: string | null = null;
+  let otpauthUrl: string | null = null;
+  if (pendingFactor?.secret) {
+    try {
+      secret = decryptMfaSecret(pendingFactor.secret);
+      otpauthUrl = buildOtpAuthUri({
+        issuer: process.env.MFA_TOTP_ISSUER || 'Katina Tickets',
+        accountName: principal.email,
+        secret,
+      });
+    } catch {
+      secret = null;
+      otpauthUrl = null;
+    }
+  }
+
+  response.json({
+    success: true,
+    enrolled: Boolean(activeTotpFactor),
+    pending: Boolean(pendingFactor),
+    required: roleRequiresMfa(principal.role),
+    factorId: pendingFactor?.id ?? activeTotpFactor?.id ?? null,
+    label: pendingFactor?.label ?? activeTotpFactor?.label ?? null,
+    secret,
+    otpauthUrl,
+    recoveryCodeCount,
+  });
+});
+
 const requireAuthenticatedSession = async (request: Request): Promise<AuthPrincipal | null> => {
   const principal = await resolveSessionFromCookie(request);
   return principal;
@@ -679,6 +1199,10 @@ app.get('/api/admin/overview', async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
@@ -697,6 +1221,10 @@ app.get('/api/scanner/dashboard', async (request: Request, response: Response) =
     return;
   }
 
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
+    return;
+  }
+
   if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
     response.status(403).json({ success: false, message: 'Forbidden.' });
     return;
@@ -712,6 +1240,10 @@ app.get('/api/finance/reports', async (request: Request, response: Response) => 
     return;
   }
 
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
+    return;
+  }
+
   if (!['SUPER_ADMIN', 'FINANCE'].includes(principal.role)) {
     response.status(403).json({ success: false, message: 'Forbidden.' });
     return;
@@ -724,6 +1256,10 @@ app.post('/api/organizer/events', async (request: Request, response: Response) =
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
@@ -807,7 +1343,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
   }
 
   if (principal) {
-    logAuditEvent({
+    await emitAuditEvent({
       name: 'SESSION_CREATED',
       actorUserId: principal.userId,
       targetUserId: principal.userId,

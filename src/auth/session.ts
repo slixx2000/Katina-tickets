@@ -19,6 +19,31 @@ export type ServerSessionResponse = {
   user: AppSessionUser | null;
 };
 
+export type MfaStatusResponse = {
+  success: boolean;
+  enrolled: boolean;
+  pending: boolean;
+  required: boolean;
+  factorId: string | null;
+  label: string | null;
+  secret: string | null;
+  otpauthUrl: string | null;
+  recoveryCodeCount?: number;
+};
+
+export type MfaEnrollResponse = {
+  success: boolean;
+  factorId: string;
+  secret: string;
+  otpauthUrl: string;
+};
+
+export type MfaActivateResponse = {
+  success: boolean;
+  backupCodes: string[];
+  message: string;
+};
+
 function readMetadataValue(user: SupabaseSessionUserLike, keys: readonly string[]) {
   const metadataSources = [user.app_metadata, user.user_metadata];
 
@@ -110,4 +135,66 @@ export async function clearServerSession(): Promise<void> {
       Accept: 'application/json',
     },
   });
+}
+
+async function parseJsonOrThrow<T>(response: Response): Promise<T> {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Request failed.');
+  }
+
+  return payload as T;
+}
+
+export async function fetchMfaStatus(): Promise<MfaStatusResponse> {
+  const response = await fetch('/api/auth/mfa/status', {
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  return parseJsonOrThrow<MfaStatusResponse>(response);
+}
+
+export async function enrollMfa(label?: string): Promise<MfaEnrollResponse> {
+  const response = await fetch('/api/auth/mfa/enroll', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ label }),
+  });
+
+  return parseJsonOrThrow<MfaEnrollResponse>(response);
+}
+
+export async function activateMfa(factorId: string, code: string): Promise<MfaActivateResponse> {
+  const response = await fetch('/api/auth/mfa/activate', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ factorId, code }),
+  });
+
+  return parseJsonOrThrow<MfaActivateResponse>(response);
+}
+
+export async function disableMfa(code: string): Promise<void> {
+  const response = await fetch('/api/auth/mfa/disable', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ code }),
+  });
+
+  await parseJsonOrThrow<{ success: boolean }>(response);
 }

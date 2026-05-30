@@ -55,6 +55,7 @@ The current auth hardening blueprint now assumes:
 - Supabase Auth for login
 - HttpOnly cookie sessions issued by the Express backend
 - Prisma + PostgreSQL as the source of truth for roles, permissions, sessions, refresh tokens, and audit logs
+- TOTP MFA enrollment/activation endpoints with encrypted-at-rest secrets and one-time backup recovery codes
 - Middleware-style guards on protected API routes and role-specific dashboard routes
 - CSRF checks on state-changing routes
 - Rate limiting on auth and payment endpoints
