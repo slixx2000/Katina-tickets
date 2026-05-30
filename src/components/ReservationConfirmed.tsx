@@ -1,40 +1,104 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, Wallet, Download, Sparkles, Star, Calendar, MapPin, Armchair, Hash } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { TicketPackage, RegistrationData } from '../types';
 
 interface ReservationConfirmedProps {
   registrationData: RegistrationData;
   selectedPackage: TicketPackage;
+  paymentReference: string;
+  paymentStatus: 'pending' | 'completed' | 'failed';
   onNavigateHome: () => void;
   onGoToAdmin: () => void;
 }
 
-export default function ReservationConfirmed({ registrationData, selectedPackage, onNavigateHome, onGoToAdmin }: ReservationConfirmedProps) {
+export default function ReservationConfirmed({ registrationData, selectedPackage, paymentReference, paymentStatus, onNavigateHome, onGoToAdmin }: ReservationConfirmedProps) {
   const [ticketId, setTicketId] = useState('');
-  const [seatId, setSeatId] = useState('');
-
-  const qrImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuCdny86GPQvSD5A4h4L7VCxXHwnjoueFdqE6S4vfdeS4z8WEiDNhW9ZTYWCmCVvv18En8rn7_e8ce7VhRnRY2Fl2MPXBsk6z_wcMZwsjhYZo9L-YdMA9ofpDFXyvxuLQ_nyz1ZzVhAWqFSYx0wKuVBqk6NAOcuFyXd5hJ3kQIBL4iSflXUHapVdDvHjqMvxwA1T1DKob_12Ifn_k4AsYtdIqgK34hLu-W3P4GU6Y_jrCStepXbvWWwfmiPfs5dcIj-U5NyP-yAAhWb1";
+  const [seatId, setSeatId] = useState('Pending assignment');
+  const [paymentLabel, setPaymentLabel] = useState<'PENDING' | 'PAID' | 'FAILED'>('PENDING');
+  const [ticketToken, setTicketToken] = useState('pending-ticket-token');
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   useEffect(() => {
-    // Generate lovely random high-fashion credential identifiers
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = 'AT-';
-    for (let i = 0; i < 3; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    result += '-';
-    for (let i = 0; i < 2; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setTicketId(result);
+    let mounted = true;
+    setTicketId(paymentReference);
 
-    // Random seating arrangement e.g., Row A, Slot 12
-    const rows = ['A', 'B', 'C', 'D'];
-    const row = selectedPackage.price === 2500 ? 'A' : (selectedPackage.price === 850 ? 'B' : rows[Math.floor(Math.random() * rows.length)]);
-    const slot = Math.floor(Math.random() * 24) + 1;
-    setSeatId(`Row ${row}, ${slot}`);
-  }, [selectedPackage]);
+    const localStatus = paymentStatus === 'completed' ? 'PAID' : paymentStatus === 'failed' ? 'FAILED' : 'PENDING';
+    setPaymentLabel(localStatus);
+
+    const resolveReservation = async () => {
+      try {
+        const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/reservation`);
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        if (!mounted) return;
+
+        const status = String(payload?.paymentStatus ?? '').toUpperCase();
+        if (status === 'PAID' || status === 'FAILED' || status === 'PENDING') {
+          setPaymentLabel(status);
+        }
+
+        const seats = Array.isArray(payload?.reservation?.seatDetails)
+          ? payload.reservation.seatDetails.filter((item: unknown) => typeof item === 'string')
+          : [];
+
+        if (seats.length > 0) {
+          setSeatId(seats.join(', '));
+        }
+
+        if (status === 'PAID') {
+          const tokenResponse = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-token`);
+          if (tokenResponse.ok) {
+            const tokenPayload = await tokenResponse.json();
+            if (typeof tokenPayload?.token === 'string' && tokenPayload.token.length > 0 && mounted) {
+              setTicketToken(tokenPayload.token);
+            }
+          }
+        }
+      } catch {
+        // Keep pending fallback state.
+      }
+    };
+
+    void resolveReservation();
+
+    return () => {
+      mounted = false;
+    };
+  }, [paymentReference, paymentStatus]);
+
+  const handleDownloadPdf = async () => {
+    if (paymentLabel !== 'PAID') {
+      alert('Ticket PDF becomes available after payment confirmation.');
+      return;
+    }
+
+    setIsDownloadingPdf(true);
+    try {
+      const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-pdf`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        alert(payload?.message || 'Unable to download ticket PDF right now.');
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `katina-ticket-${paymentReference}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Unable to download ticket PDF right now.');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
   return (
     <div className="min-h-screen relative flex flex-col items-center justify-center overflow-hidden p-6 md:p-12 bg-[#666E54] text-[#F4F4F2]">
@@ -125,17 +189,24 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
                     <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Seat</span>
                     <span className="text-xs sm:text-sm text-[#F4F4F2] font-bold">{seatId}</span>
                   </div>
+                  <div className="flex flex-col">
+                    <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Payment</span>
+                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">{paymentLabel}</span>
+                  </div>
                 </div>
               </div>
 
               {/* Barcode/Cryptographic QR Code container */}
               <div className="flex flex-col items-center gap-3 shrink-0">
                 <div className="w-36 h-36 bg-[#F4F4F2] rounded-none border border-[#F4F4F2]/30 p-2 relative overflow-hidden group-hover:border-[#F4F4F2]/60 transition-colors">
-                  <img
-                    alt="Cryptographic Certified Security Tag"
-                    src={qrImage}
-                    className="w-full h-full object-cover mix-blend-multiply opacity-95 group-hover:opacity-100 transition-all duration-700"
-                    referrerPolicy="no-referrer"
+                  <QRCodeSVG
+                    value={ticketToken}
+                    size={128}
+                    bgColor="#F4F4F2"
+                    fgColor="#111111"
+                    level="M"
+                    includeMargin={false}
+                    className="w-full h-full"
                   />
                   {/* Glowing Laser scanner line sweeping up and down */}
                   <div className="absolute top-1/2 left-0 w-full h-[1.5px] bg-[#4E1413] shadow-[0_0_8px_rgba(78,20,19,0.8)] animate-bounce" />
@@ -164,13 +235,12 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
           </button>
 
           <button
-            onClick={() => {
-              alert("Pass downloaded as simulated PDF credential coordinates.");
-            }}
+            onClick={handleDownloadPdf}
+            disabled={isDownloadingPdf}
             className="w-full sm:w-auto px-8 py-4 bg-transparent border border-[#F4F4F2]/30 text-[#F4F4F2] font-label-caps text-[11px] flex items-center justify-center gap-2 hover:border-[#F4F4F2] hover:text-[#F4F4F2] hover:bg-[#F4F4F2]/10 transition-all duration-500 rounded-none cursor-pointer"
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>DOWNLOAD TICKET</span>
+            <span>{isDownloadingPdf ? 'DOWNLOADING...' : 'DOWNLOAD TICKET'}</span>
           </button>
         </div>
 

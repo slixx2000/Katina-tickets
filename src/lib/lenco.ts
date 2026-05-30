@@ -12,9 +12,9 @@ export interface LencoPaymentResponse {
   message?: string;
   reference?: string;
   checkoutUrl?: string;
+  providerReference?: string;
+  status?: string;
 }
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function processLencoPayment(payload: LencoPaymentRequest): Promise<LencoPaymentResponse> {
   try {
@@ -33,6 +33,8 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
         message: data.message,
         reference: data.reference,
         checkoutUrl: data.checkoutUrl,
+        providerReference: data.providerReference,
+        status: data.status,
       };
     }
 
@@ -41,14 +43,8 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
       return { success: false, message: errorBody.message };
     }
   } catch {
-    // Fall back to the local mock path while the backend endpoint is being built.
+    return { success: false, message: 'Unable to reach payment service. Please retry shortly.' };
   }
 
-  await wait(800);
-
-  return {
-    success: true,
-    message: 'Simulated Lenco payment approved',
-    reference: `LENCO-MOCK-${Date.now()}`,
-  };
+  return { success: false, message: 'Payment session could not be created.' };
 }

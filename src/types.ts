@@ -31,11 +31,10 @@ export interface RegistrationData {
 }
 
 export interface PaymentData {
-  cardNumber: string;
-  expiryDate: string;
-  securityCode: string;
-  cardholderName: string;
   method: 'card' | 'applepay' | 'mobilemoney';
+  reference: string;
+  providerReference?: string;
+  status: 'pending' | 'completed' | 'failed';
 }
 
 export interface Transaction {
@@ -46,7 +45,7 @@ export interface Transaction {
   quantity: number;
   amount: number;
   timestamp: string; // e.g. "2 MINS AGO" or exact time
-  status: 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed';
   seatDetails: string[]; // e.g., ["Row A, 12", "Row A, 13"]
 }
 

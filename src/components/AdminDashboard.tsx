@@ -11,9 +11,10 @@ interface AdminDashboardProps {
   packages: TicketPackage[];
   onBackToMain: () => void;
   onUpdateInventory: (updatedPkgs: TicketPackage[]) => void;
+  onSignOut: () => void;
 }
 
-export default function AdminDashboard({ stats, packages, onBackToMain, onUpdateInventory }: AdminDashboardProps) {
+export default function AdminDashboard({ stats, packages, onBackToMain, onUpdateInventory, onSignOut }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'7D' | '30D' | 'YTD'>('30D');
   const [showGuestList, setShowGuestList] = useState(false);
   const [showInventoryCustomizer, setShowInventoryCustomizer] = useState(false);
@@ -131,6 +132,13 @@ export default function AdminDashboard({ stats, packages, onBackToMain, onUpdate
             className="px-6 py-3 bg-[#4E1413] hover:bg-[#4E1413]/90 text-[#F4F4F2] rounded-none tracking-widest font-label-caps cursor-pointer transition-all duration-300 font-bold"
           >
             MANAGE EVENT
+          </button>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="px-6 py-3 bg-[#111111] hover:bg-[#000000] text-[#A3A46A] rounded-none tracking-widest font-label-caps cursor-pointer transition-all duration-300 font-bold border border-[#A3A46A]/30"
+          >
+            SIGN OUT
           </button>
         </div>
       </div>

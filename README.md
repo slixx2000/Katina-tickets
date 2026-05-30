@@ -41,3 +41,17 @@ The app now includes:
 The dev server now proxies `/api` requests to the local Express backend so the checkout flow can hit `/api/pay` and `/api/webhook` during development.
 
 When you’re ready, the next step is to add the server endpoints for `/api/pay` and `/api/webhook`, then connect them to the Lenco secret keys.
+
+## Auth Architecture Snapshot
+
+The current auth hardening blueprint now assumes:
+
+- Supabase Auth for login
+- HttpOnly cookie sessions issued by the Express backend
+- Prisma + PostgreSQL as the source of truth for roles, permissions, sessions, refresh tokens, and audit logs
+- Middleware-style guards on protected API routes and role-specific dashboard routes
+- CSRF checks on state-changing routes
+- Rate limiting on auth and payment endpoints
+- Audit logging hooks for login, logout, permission denial, and session rotation
+
+Protected route examples are implemented in the Express server for admin, scanner, finance, and organizer access, with MFA-ready checks for `SUPER_ADMIN` and `FINANCE`.

@@ -1,7 +1,7 @@
 /**
  * ATELIER COUTURE - Luxury Ticket Concierge & Event Management Console
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Core Components Imports
@@ -14,7 +14,9 @@ import ReservationConfirmed from './components/ReservationConfirmed';
 import AdminDashboard from './components/AdminDashboard';
 import Footer from './components/Footer';
 import AdminLogin from './components/AdminLogin';
+import TermsAndConditionsModal from './components/TermsAndConditionsModal';
 import { supabase } from './lib/supabaseClient';
+import { canEnterAdminConsole, clearServerSession, fetchServerSession, type AppSessionUser } from './auth/session';
 
 // Types and schemas definition
 import { ScreenType, TicketType, TicketPackage, RegistrationData, PaymentData, AdminStats, Transaction } from './types';
@@ -45,19 +47,6 @@ const INITIAL_PACKAGES: TicketPackage[] = [
       'Pre-allocated priority row placing',
       'Backstage Passes Post-Showcase',
       'Private Bar Lounge & elite refreshments access'
-    ]
-  },
-  {
-    id: 'front_row' as any, // Advanced Elite Option matching the exact $2,500 VIP Price inside screenshots for absolute fidelity!
-    name: 'Front Row VIP Elite',
-    price: 2500,
-    remaining: 24,
-    totalCap: 30,
-    description: 'The ultimate luxury front-row atelier showcase ticket. Elite status coordinates including couture gifts.',
-    benefits: [
-      'Couture Front-Row VIP placement and seat assignment',
-      'Backstage verified access credentials post-runway',
-      'Private After-Party invitation with designers'
     ]
   }
 ];
@@ -119,7 +108,7 @@ const INITIAL_STATS: AdminStats = {
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<{ id: string; email?: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<AppSessionUser | null>(null);
   
   // Custom Dynamic State Handlers
   const [packages, setPackages] = useState<TicketPackage[]>(INITIAL_PACKAGES);
@@ -131,25 +120,97 @@ export default function App() {
   // Bag indicator flag
   const hasItemsInBag = selectedPkgId !== null;
 
+  // T&C agreement state — persisted in sessionStorage so accepted once per visit
+  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
+  const pendingNavAfterTerms = useRef<ScreenType | null>(null);
+
+  const hasAcceptedTerms = (): boolean => {
+    try { return sessionStorage.getItem('tc_accepted') === '1'; } catch { return false; }
+  };
+
+  const markTermsAccepted = () => {
+    try { sessionStorage.setItem('tc_accepted', '1'); } catch { /* ignore */ }
+  };
+
+  // Intercept navigation that requires T&C acceptance
+  const requestNavWithTerms = (screen: ScreenType) => {
+    if (hasAcceptedTerms()) {
+      setCurrentScreen(screen);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      pendingNavAfterTerms.current = screen;
+      setShowTermsModal(true);
+    }
+  };
+
+  const handleTermsAccept = () => {
+    markTermsAccepted();
+    setShowTermsModal(false);
+    if (pendingNavAfterTerms.current) {
+      setCurrentScreen(pendingNavAfterTerms.current);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      pendingNavAfterTerms.current = null;
+    }
+  };
+
+  const handleTermsDecline = () => {
+    setShowTermsModal(false);
+    pendingNavAfterTerms.current = null;
+  };
+
   useEffect(() => {
     let mounted = true;
 
     const syncSession = async () => {
-      const { data } = await supabase.auth.getSession();
+      const user = await fetchServerSession();
       if (mounted) {
-        setCurrentUser((data.session?.user as { id: string; email?: string } | null) ?? null);
+        setCurrentUser(user);
+      }
+    };
+
+    const syncInventory = async () => {
+      type InventoryItem = {
+        ticketType: TicketType;
+        price: number;
+        remaining: number;
+        totalCap: number;
+      };
+
+      try {
+        const response = await fetch('/api/inventory');
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload?.success || !Array.isArray(payload.items)) return;
+        const items = payload.items as InventoryItem[];
+
+        if (!mounted) return;
+
+        const inventoryByType = new Map(
+          items.map((item) => [item.ticketType, item]),
+        );
+
+        setPackages((prev) =>
+          prev.map((pkg) => {
+            const inventory = inventoryByType.get(pkg.id);
+            if (!inventory) return pkg;
+            return {
+              ...pkg,
+              price: inventory.price,
+              remaining: inventory.remaining,
+              totalCap: inventory.totalCap,
+            };
+          }),
+        );
+      } catch {
+        // Keep local defaults when inventory endpoint is unavailable.
       }
     };
 
     void syncSession();
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      setCurrentUser((session?.user as { id: string; email?: string } | null) ?? null);
-    });
+    void syncInventory();
 
     return () => {
       mounted = false;
-      subscription.subscription.unsubscribe();
     };
   }, []);
 
@@ -177,7 +238,7 @@ export default function App() {
     
     // Add real-time booked ticket registration to the admin metrics list!
     if (registrationData) {
-      const uniqueId = `AT-${Math.floor(100 + Math.random() * 900)}-${Math.random().toString(36).substring(2, 4).toUpperCase()}`;
+      const uniqueId = data.reference;
       const nameInitials = registrationData.fullName
         .split(' ')
         .map(n => n[0])
@@ -195,20 +256,20 @@ export default function App() {
         quantity: registrationData.quantity,
         amount: costPaid,
         timestamp: 'JUST NOW',
-        status: 'completed',
+        status: data.status,
         seatDetails: Array.from({ length: registrationData.quantity }, (_, i) => `Row A, ${14 + i}`)
       };
 
       // Prepend to transaction analytics logs
       setAdminStats(prev => ({
         ...prev,
-        ticketsSold: prev.ticketsSold + registrationData.quantity,
+        ticketsSold: data.status === 'completed' ? prev.ticketsSold + registrationData.quantity : prev.ticketsSold,
         transactions: [newTransaction, ...prev.transactions]
       }));
 
       // Decrement availability counts
       setPackages(prev => prev.map(pkg => {
-        if (pkg.id === registrationData.ticketType) {
+        if (pkg.id === registrationData.ticketType && data.status === 'completed') {
           return {
             ...pkg,
             remaining: Math.max(0, pkg.remaining - registrationData.quantity)
@@ -260,6 +321,13 @@ export default function App() {
         onToggleTheme={() => setIsDarkMode((prev: boolean) => !prev)}
       />
 
+      {/* Terms & Conditions Modal — shown before first ticket navigation */}
+      <TermsAndConditionsModal
+        isOpen={showTermsModal}
+        onAccept={handleTermsAccept}
+        onDecline={handleTermsDecline}
+      />
+
       {/* Primary Route Screen Containers */}
       <div className="flex-grow">
         <AnimatePresence mode="wait">
@@ -272,17 +340,16 @@ export default function App() {
           >
             {currentScreen === 'landing' && (
               <LandingHero 
-                onBuyTickets={() => setCurrentScreen('select-allocation')} 
+                onBuyTickets={() => requestNavWithTerms('select-allocation')} 
                 onExploreMore={() => {
                   const targetEl = document.getElementById('footer-brand');
                   if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth' });
                 }}
               />
             )}
-
             {currentScreen === 'select-allocation' && (
               <SelectAllocation 
-                packages={packages.filter(p => p.id !== 'front_row')} 
+                packages={packages.slice(0, 2)} 
                 onSelect={handleSelectPackage} 
               />
             )}
@@ -304,10 +371,12 @@ export default function App() {
               />
             )}
 
-            {currentScreen === 'confirmed' && registrationData && (
+            {currentScreen === 'confirmed' && registrationData && paymentData && (
               <ReservationConfirmed 
                 registrationData={registrationData} 
                 selectedPackage={activeSelectedPackage} 
+                paymentReference={paymentData.reference}
+                paymentStatus={paymentData.status}
                 onNavigateHome={() => {
                   setSelectedPkgId(null);
                   setRegistrationData(null);
@@ -319,15 +388,25 @@ export default function App() {
             )}
 
             {currentScreen === 'admin' && (
-              currentUser ? (
+              canEnterAdminConsole(currentUser) ? (
                 <AdminDashboard 
                   stats={adminStats} 
                   packages={packages} 
                   onBackToMain={() => setCurrentScreen('landing')}
                   onUpdateInventory={(updatedPkgs) => setPackages(updatedPkgs)}
+                  onSignOut={async () => {
+                    await clearServerSession();
+                    setCurrentUser(null);
+                    setCurrentScreen('landing');
+                  }}
                 />
               ) : (
-                <AdminLogin onSuccess={() => setCurrentScreen('admin')} />
+                <AdminLogin onSuccess={() => {
+                  void (async () => {
+                    setCurrentUser(await fetchServerSession());
+                    setCurrentScreen('admin');
+                  })();
+                }} />
               )
             )}
           </motion.div>

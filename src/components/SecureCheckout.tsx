@@ -52,12 +52,27 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
         return;
       }
 
+      if (result.checkoutUrl) {
+        window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer');
+      }
+
+      const normalizedStatus =
+        result.status && ['paid', 'completed', 'success', 'successful'].includes(result.status.toLowerCase())
+          ? 'completed'
+          : result.status && ['failed', 'declined', 'error'].includes(result.status.toLowerCase())
+            ? 'failed'
+            : 'pending';
+
+      if (!result.reference) {
+        alert('Payment provider did not return a reference. Please retry.');
+        return;
+      }
+
       onSubmit({
-        cardNumber: method === 'card' ? cardNumber : 'Simulated Checkout',
-        expiryDate: method === 'card' ? expiryDate : '01/30',
-        securityCode: method === 'card' ? securityCode : '123',
-        cardholderName: method === 'card' ? cardholderName : registrationData.fullName,
-        method
+        method,
+        reference: result.reference,
+        providerReference: result.providerReference,
+        status: normalizedStatus,
       });
     } finally {
       setIsProcessingPayment(false);

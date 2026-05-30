@@ -9,7 +9,7 @@ interface SelectAllocationProps {
 }
 
 export default function SelectAllocation({ packages, onSelect }: SelectAllocationProps) {
-  const [expandedId, setExpandedId] = useState<TicketType | 'front_row' | null>(null);
+  const [expandedId, setExpandedId] = useState<TicketType | null>(null);
 
   const bgImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuC5rJnXp129X8QLL72N1k9Y24Jh1rWNSMHNpzaIUw6uizbyTQjgFZf51kg1COw7JcqMejqnvL4FruJroIFV57V1sfJ2r-i-MOJF9ZvSkFdw3FSNizL5Cixws8AzxV88I2-s310eKF-IRRyF4k4xCG9jwMGiGzMJTStlIa0LLU1XRcnLgYD1gqiuDf-wL2WtmM0xAM7QAu0ZTqOxtXvjh-kqAwesscAB2HRkYSTkwXpTsa5hvmUVvAaAwIdG_yCVLEKbtLFZZa4Lje0f";
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { canEnterAdminConsole, toAppSessionUser } from '../auth/session';
 
 interface AdminLoginProps {
   onSuccess: () => void;
@@ -15,15 +16,45 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      if (data?.user) {
-        onSuccess();
+
+      const sessionUser = toAppSessionUser(data.user ?? null);
+
+      if (!sessionUser) {
+        throw new Error('Signed in, but the session payload was incomplete.');
       }
+
+      if (!canEnterAdminConsole(sessionUser)) {
+        await supabase.auth.signOut({ scope: 'local' });
+        throw new Error('You do not have permission to access the admin console.');
+      }
+
+      const accessToken = data.session?.access_token;
+      const profile = data.user;
+
+      if (!accessToken || !profile?.email) {
+        throw new Error('Signed in, but no server session could be created.');
+      }
+
+      const exchangeResponse = await fetch('/api/auth/exchange', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!exchangeResponse.ok) {
+        const payload = await exchangeResponse.json().catch(() => null);
+        throw new Error(payload?.message || 'Could not create secure server session.');
+      }
+
+      await supabase.auth.signOut({ scope: 'local' });
+      onSuccess();
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
