@@ -35,12 +35,18 @@ This starts the Vite frontend on port 3000 and the Express API on port 8787.
 The app now includes:
 
 - A Supabase client wrapper with a safe mock fallback while env vars are missing.
-- Admin auth gating that will use Supabase sessions once the project keys are configured.
-- A checkout payment adapter that can call `/api/pay` for Lenco and falls back to local simulation until the backend exists.
+- Admin auth/session exchange integrated with backend HttpOnly cookie sessions.
+- Lenco-backed payment routes on the Express API (`/api/pay`, `/api/webhook`) with reservation and ticket issuance endpoints.
 
 The dev server now proxies `/api` requests to the local Express backend so the checkout flow can hit `/api/pay` and `/api/webhook` during development.
 
-When you’re ready, the next step is to add the server endpoints for `/api/pay` and `/api/webhook`, then connect them to the Lenco secret keys.
+When you’re ready for production, the next step is to harden the deployment profile (TLS, CSP, monitoring, and CI quality gates) and run Prisma migrations against your production database.
+
+## Verify & Test
+
+- `npm run lint` for TypeScript no-emit checks
+- `npm run build` for frontend production build
+- `npm test` for API integration tests
 
 ## Auth Architecture Snapshot
 

@@ -64,6 +64,7 @@ const allowedOrigins = [process.env.APP_URL, process.env.APP_ORIGIN, process.env
 const authRateLimiter = createInMemoryRateLimiter({ limit: 8, windowMs: 60_000 });
 const paymentRateLimiter = createInMemoryRateLimiter({ limit: 20, windowMs: 60_000 });
 const webhookRateLimiter = createInMemoryRateLimiter({ limit: 120, windowMs: 60_000 });
+const inMemoryWebhookEvents = new Set<string>();
 
 app.use(
   express.json({
@@ -249,7 +250,8 @@ function signTicketToken(reference: string) {
 
 function isDevAuthBypassEnabled() {
   const flag = String(process.env.ALLOW_DEV_AUTH_BYPASS ?? '').toLowerCase();
-  return process.env.NODE_ENV === 'development' && flag === 'true';
+  const env = process.env.NODE_ENV;
+  return (env === 'development' || env === 'test') && flag === 'true';
 }
 
 async function buildTicketPdfBytes(input: {
@@ -505,6 +507,11 @@ async function persistWebhookDelivery(input: {
   payload: Record<string, unknown>;
 }) {
   if (!isPrismaAvailable()) {
+    if (inMemoryWebhookEvents.has(input.providerEventId)) {
+      return false;
+    }
+
+    inMemoryWebhookEvents.add(input.providerEventId);
     return true;
   }
 
@@ -1046,8 +1053,12 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
   response.send(Buffer.from(pdfBytes));
 });
 
-void ensureTicketInventorySeed();
+export { app };
 
-app.listen(port, () => {
-  console.log(`Katina Tickets API listening on http://127.0.0.1:${port}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  void ensureTicketInventorySeed();
+
+  app.listen(port, () => {
+    console.log(`Katina Tickets API listening on http://127.0.0.1:${port}`);
+  });
+}

@@ -27,8 +27,10 @@ export type AuditEvent = {
 
 export function buildAuditEvent(event: AuditEvent) {
   const request = event.request;
+  const { request: _request, ...rest } = event;
+
   return {
-    ...event,
+    ...rest,
     ipAddress:
       event.ipAddress ??
       request?.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() ??
