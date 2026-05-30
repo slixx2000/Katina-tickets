@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local planning and one-off practical scripts
+plan.md
+scripts/katina-seed-payment.cjs
+scripts/practical-check.ps1
