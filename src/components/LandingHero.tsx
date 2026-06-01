@@ -45,7 +45,7 @@ export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHero
 
           {/* Event subtitle */}
           <p className="font-label-caps text-[color:var(--hero-text-muted)] text-[10px] md:text-xs mb-12 tracking-[0.35em] uppercase max-w-xl leading-relaxed">
-            LUSAKA | FALL WINTER 2026 | CIELA RESORT
+            FASHION SHOW | 30 OCTOBER 2026 | MULUNGUSHI CONFERENCE CENTRE | 6 PM - 9 PM
           </p>
 
           {/* Golden/Glass luxury action button */}

@@ -12,8 +12,8 @@ const SECTIONS = [
   {
     title: 'TICKET PURCHASE & PAYMENT',
     body: [
-      'All ticket purchases made through this platform are final. By completing your transaction, you enter into a binding agreement for admission to the Katina Basil Fall/Winter 2026 Haute Couture Showcase ("the Event").',
-      'Tickets are priced in Zambian Kwacha (ZMW). Full payment is required at the time of booking. Your reservation is only confirmed upon receipt of a successful payment confirmation from our payment processor.',
+      'All ticket purchases made through this platform are final. By completing your transaction, you enter into a binding agreement for admission to the Fashion Show event ("the Event").',
+      'Tickets are priced in Zambian Kwacha and displayed as K. Full payment is required at the time of booking. Your reservation is only confirmed upon receipt of a successful payment confirmation from our payment processor.',
       'In the event of a payment failure or processing error, no reservation is guaranteed until you receive an explicit confirmation reference via email.',
     ],
   },
@@ -169,7 +169,7 @@ export default function TermsAndConditionsModal({ isOpen, onAccept, onDecline }:
                 {/* Intro */}
                 <p className="font-body-md text-[13px] text-[#F4F4F2]/75 leading-relaxed border-l-2 border-[rgba(244,244,242,0.2)] pl-4">
                   Please read these Terms &amp; Conditions carefully before completing your ticket purchase for the{' '}
-                  <span className="text-[#F4F4F2] font-semibold">Katina Basil Fall/Winter 2026 Haute Couture Showcase</span>.
+                  <span className="text-[#F4F4F2] font-semibold">Fashion Show at Mulungushi Conference Centre</span>.
                   By accepting, you confirm that you have read, understood, and agree to be bound by all of the following terms.
                   Last updated: <span className="text-[#F4F4F2]/60 italic">May 2026</span>.
                 </p>

@@ -80,10 +80,10 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
   };
 
   // Inventory adjustment temporary inputs
-  const [ordinaryPrice, setOrdinaryPrice] = useState(packages.find(p => p.id === 'ordinary')?.price || 250);
-  const [vipPrice, setVipPrice] = useState(packages.find(p => p.id === 'vip')?.price || 850);
-  const [ordinaryCap, setOrdinaryCap] = useState(packages.find(p => p.id === 'ordinary')?.remaining || 400);
-  const [vipCap, setVipCap] = useState(packages.find(p => p.id === 'vip')?.remaining || 200);
+  const [ordinaryPrice, setOrdinaryPrice] = useState(packages.find(p => p.id === 'ordinary')?.price || 725);
+  const [vipPrice, setVipPrice] = useState(packages.find(p => p.id === 'vip')?.price || 1250);
+  const [ordinaryCap, setOrdinaryCap] = useState(packages.find(p => p.id === 'ordinary')?.remaining || 600);
+  const [vipCap, setVipCap] = useState(packages.find(p => p.id === 'vip')?.remaining || 300);
 
   const handleSaveInventory = () => {
     const updated = packages.map(pkg => {
@@ -119,7 +119,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
         <div>
           <span className="font-label-caps text-[10px] text-[#F4F4F2]/80 tracking-[0.3em] block mb-2 uppercase font-bold">LIVE ANALYTICS CONSOLE</span>
           <h2 className="font-display text-4xl sm:text-5xl text-[#F4F4F2] uppercase tracking-tight font-bold">
-            Katina Basil Showcase
+            Fashion Show
           </h2>
         </div>
         <div className="flex gap-4 font-sans text-xs">
@@ -201,7 +201,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
             <span className="text-xs text-[#F4F4F2]/70 font-label-caps tracking-widest font-bold">SEATS LEFT</span>
           </div>
           <p className="font-body-md text-xs text-[#F4F4F2]/60 mt-2 font-medium tracking-wide">
-            VIP allocations limits remaining: {packages.find(p => p.id === 'vip')?.remaining || 200}
+            Priority allocations limits remaining: {packages.find(p => p.id === 'vip')?.remaining || 300}
           </p>
         </div>
 
@@ -525,7 +525,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
               <div className="space-y-4">
                 <h4 className="font-label-caps text-[11px] text-[#F4F4F2]/90 font-bold">Ordinary Allocation Config</h4>
                 <div>
-                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">Ordinary Price (ZMW)</label>
+                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">Ordinary Price (K)</label>
                   <input 
                     type="number"
                     value={ordinaryPrice}
@@ -546,9 +546,9 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
 
               {/* VIP Settings */}
               <div className="space-y-4">
-                <h4 className="font-label-caps text-[11px] text-[#F4F4F2]/90 font-bold">VIP Allocation Config</h4>
+                <h4 className="font-label-caps text-[11px] text-[#F4F4F2]/90 font-bold">Priority Allocation Config</h4>
                 <div>
-                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">VIP Price (ZMW)</label>
+                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">Priority Price (K)</label>
                   <input 
                     type="number"
                     value={vipPrice}
@@ -557,7 +557,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">VIP Inventory Remaining</label>
+                  <label className="block text-[10px] font-label-caps text-[#F4F4F2]/70 mb-1 font-bold">Priority Inventory Remaining</label>
                   <input 
                     type="number"
                     value={vipCap}

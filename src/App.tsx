@@ -26,38 +26,49 @@ const INITIAL_PACKAGES: TicketPackage[] = [
   {
     id: 'ordinary',
     name: 'Ordinary Ticket',
-    price: 250,
-    remaining: 400,
-    totalCap: 500,
-    description: 'Standard access admittance pass to general show halls, featuring ambient acoustics and standard seating.',
+    price: 725,
+    remaining: 600,
+    totalCap: 600,
+    description: 'General access package for the Fashion Show with curated hospitality and allocated seating.',
     benefits: [
-      'General Admission Seating placement',
-      'Access to Main Hall Runway Installation',
-      'Private Lounge & Elite Champagne (Not Included)'
+      'Fashion show access',
+      'Red carpet experience',
+      'Reserved access to runway pieces',
+      'Complimentary drinks and snacks',
+      'Allocated seating',
+      'Meet and greet',
+      'Live music',
+      'Gift bags'
     ]
   },
   {
     id: 'vip',
-    name: 'VIP Case Pass',
-    price: 850,
-    remaining: 200,
-    totalCap: 250,
-    description: 'Highly exclusive backstage VIP passes complete with pre-reserved rows inside the historic venues.',
+    name: 'Priority Ticket',
+    price: 1250,
+    remaining: 300,
+    totalCap: 300,
+    description: 'Priority package for enhanced runway access, front row seating, and backstage entry after the show.',
     benefits: [
-      'Pre-allocated priority row placing',
-      'Backstage Passes Post-Showcase',
-      'Private Bar Lounge & elite refreshments access'
+      'Priority show access',
+      'Red carpet experience',
+      'Priority access to runway pieces',
+      'Complimentary snacks and drinks',
+      'Front row seating',
+      'Meet and greet',
+      'Live music',
+      'Priority gift bags',
+      'After-show backstage access'
     ]
   }
 ];
 
 const INITIAL_STATS: AdminStats = {
-  ticketsSold: 412,
-  ticketsTotal: 500,
-  totalRevenue: 125000,
+  ticketsSold: 7,
+  ticketsTotal: 900,
+  totalRevenue: 0,
   remainingInventory: {
-    ordinary: 400,
-    vip: 200
+    ordinary: 600,
+    vip: 300
   },
   transactions: [
     {
@@ -66,7 +77,7 @@ const INITIAL_STATS: AdminStats = {
       initials: 'EV',
       ticketType: 'vip',
       quantity: 2,
-      amount: 1700,
+      amount: 2500,
       timestamp: '2 MINS AGO',
       status: 'completed',
       seatDetails: ['Row A, 12', 'Row A, 13']
@@ -77,7 +88,7 @@ const INITIAL_STATS: AdminStats = {
       initials: 'JR',
       ticketType: 'ordinary',
       quantity: 1,
-      amount: 250,
+      amount: 725,
       timestamp: '15 MINS AGO',
       status: 'completed',
       seatDetails: ['Row C, 18']
@@ -88,20 +99,20 @@ const INITIAL_STATS: AdminStats = {
       initials: 'AW',
       ticketType: 'vip',
       quantity: 4,
-      amount: 3400,
+      amount: 5000,
       timestamp: '1 HOUR AGO',
       status: 'completed',
       seatDetails: ['Row B, 1', 'Row B, 2', 'Row B, 3', 'Row B, 4']
     }
   ],
   chartsData: [
-    { day: 'MON', count: 5, revenue: 1250 },
-    { day: 'TUE', count: 8, revenue: 2000 },
-    { day: 'WED', count: 3, revenue: 750 },
-    { day: 'THU', count: 12, revenue: 3000 },
-    { day: 'FRI', count: 10, revenue: 4500 },
-    { day: 'SAT', count: 16, revenue: 8500 },
-    { day: 'SUN', count: 13, revenue: 11050 }
+    { day: 'MON', count: 5, revenue: 3625 },
+    { day: 'TUE', count: 8, revenue: 5800 },
+    { day: 'WED', count: 3, revenue: 2175 },
+    { day: 'THU', count: 12, revenue: 8700 },
+    { day: 'FRI', count: 10, revenue: 7250 },
+    { day: 'SAT', count: 16, revenue: 11600 },
+    { day: 'SUN', count: 13, revenue: 9425 }
   ]
 };
 

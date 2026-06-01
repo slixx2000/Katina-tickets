@@ -147,7 +147,7 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
                   </h2>
                   <p className="font-label-caps text-[10px] text-[#F4F4F2] mt-2 flex items-center gap-1 font-bold tracking-wider">
                     <Sparkles className="w-3.5 h-3.5 text-[#F4F4F2] animate-pulse" />
-                    {selectedPackage.price === 2500 ? 'VIP Access Credential' : 'General admittance pass'}
+                    {selectedPackage.id === 'vip' ? 'Priority Access Credential' : 'General admittance pass'}
                   </p>
                 </div>
                 <div className="w-12 h-12 bg-[#F4F4F2]/10 rounded-full border border-[#F4F4F2]/25 flex items-center justify-center shadow-inner">
@@ -175,15 +175,19 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
                 <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                   <div className="flex flex-col">
                     <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Event</span>
-                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-bold">Katina Basil Showcase</span>
+                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-bold">Fashion Show</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Date</span>
-                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">Nov 12, 2026</span>
+                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">30 October 2026</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Time</span>
+                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">6:00 PM - 9:00 PM</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Location</span>
-                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">Ciela Resort</span>
+                    <span className="text-xs sm:text-sm text-[#F4F4F2] font-semibold">Mulungushi Conference Centre</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="font-label-caps text-[9px] text-[#F4F4F2]/60 mb-0.5 font-bold">Seat</span>

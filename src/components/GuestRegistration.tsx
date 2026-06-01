@@ -99,8 +99,8 @@ export default function GuestRegistration({ selectedPackage, onBack, onSubmit }:
                 <Calendar className="w-3.5 h-3.5 text-[color:var(--guest-text)]" /> Date &amp; Time
               </span>
               <span className="font-body-md text-xs text-right text-[color:var(--guest-text)] font-semibold">
-                Nov 12, 2026<br />
-                8:00 PM CAT
+                30 October 2026<br />
+                6:00 PM - 9:00 PM
               </span>
             </div>
 
@@ -109,7 +109,7 @@ export default function GuestRegistration({ selectedPackage, onBack, onSubmit }:
                 <MapPin className="w-3.5 h-3.5 text-[color:var(--guest-text)]" /> Location
               </span>
               <span className="font-body-md text-xs text-right text-[color:var(--guest-text)] font-semibold">
-                Ciela Resort &amp; Spa<br />
+                Mulungushi Conference Centre<br />
                 Lusaka, Zambia
               </span>
             </div>

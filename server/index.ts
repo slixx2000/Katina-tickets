@@ -71,8 +71,8 @@ type SessionPayload = {
 type TicketTypeKey = 'ordinary' | 'vip';
 
 const DEFAULT_INVENTORY: Record<TicketTypeKey, { price: number; totalCap: number; remaining: number }> = {
-  ordinary: { price: 250, totalCap: 500, remaining: 500 },
-  vip: { price: 850, totalCap: 250, remaining: 250 },
+  ordinary: { price: 725, totalCap: 600, remaining: 600 },
+  vip: { price: 1250, totalCap: 300, remaining: 300 },
 };
 
 const app = express();
@@ -437,7 +437,7 @@ async function buildTicketPdfBytes(input: {
     page.drawText(value, { x: 180, y, size: 11, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
   };
 
-  page.drawText('KATINA BASIL - Digital Ticket', {
+  page.drawText('Fashion Show - Digital Ticket', {
     x: 56,
     y: 790,
     size: 24,
@@ -453,16 +453,20 @@ async function buildTicketPdfBytes(input: {
     color: rgb(0.25, 0.25, 0.25),
   });
 
-  drawLine('Payment Reference', input.reference, 720);
-  drawLine('Guest Name', input.fullName, 696);
-  drawLine('Guest Email', input.email, 672);
-  drawLine('Ticket Type', input.ticketType.toUpperCase(), 648);
-  drawLine('Quantity', String(input.quantity), 624);
-  drawLine('Seats', input.seatDetails.join(', '), 600);
+  drawLine('Event', 'Fashion Show', 736);
+  drawLine('Date', '30 October 2026', 712);
+  drawLine('Time', '6:00 PM - 9:00 PM', 688);
+  drawLine('Venue', 'Mulungushi Conference Centre', 664);
+  drawLine('Payment Reference', input.reference, 636);
+  drawLine('Guest Name', input.fullName, 612);
+  drawLine('Guest Email', input.email, 588);
+  drawLine('Ticket Type', input.ticketType.toUpperCase(), 564);
+  drawLine('Quantity', String(input.quantity), 540);
+  drawLine('Seats', input.seatDetails.join(', '), 516);
 
   page.drawText(`Issued at: ${new Date().toISOString()}`, {
     x: 56,
-    y: 560,
+    y: 484,
     size: 10,
     font: fontRegular,
     color: rgb(0.35, 0.35, 0.35),
@@ -471,14 +475,14 @@ async function buildTicketPdfBytes(input: {
   const token = signTicketToken(input.reference);
   page.drawText('Ticket Token (Scanner Payload)', {
     x: 56,
-    y: 520,
+    y: 448,
     size: 11,
     font: fontBold,
     color: rgb(0.1, 0.1, 0.1),
   });
   page.drawText(token, {
     x: 56,
-    y: 500,
+    y: 428,
     size: 8,
     font: fontRegular,
     color: rgb(0.2, 0.2, 0.2),
@@ -494,27 +498,36 @@ async function ensureTicketInventorySeed() {
     return;
   }
 
-  const count = await prisma.ticketInventory.count();
-  if (count > 0) {
-    return;
-  }
+  const alignInventory = async (type: 'ORDINARY' | 'VIP', defaults: { price: number; totalCap: number; remaining: number }) => {
+    const existing = await prisma.ticketInventory.findUnique({ where: { type } });
 
-  await prisma.ticketInventory.createMany({
-    data: [
-      {
-        type: 'ORDINARY',
-        price: DEFAULT_INVENTORY.ordinary.price,
-        totalCap: DEFAULT_INVENTORY.ordinary.totalCap,
-        remaining: DEFAULT_INVENTORY.ordinary.remaining,
+    if (!existing) {
+      await prisma.ticketInventory.create({
+        data: {
+          type,
+          price: defaults.price,
+          totalCap: defaults.totalCap,
+          remaining: defaults.remaining,
+        },
+      });
+      return;
+    }
+
+    const sold = Math.max(0, existing.totalCap - existing.remaining);
+    const nextRemaining = Math.max(0, defaults.totalCap - sold);
+
+    await prisma.ticketInventory.update({
+      where: { type },
+      data: {
+        price: defaults.price,
+        totalCap: defaults.totalCap,
+        remaining: nextRemaining,
       },
-      {
-        type: 'VIP',
-        price: DEFAULT_INVENTORY.vip.price,
-        totalCap: DEFAULT_INVENTORY.vip.totalCap,
-        remaining: DEFAULT_INVENTORY.vip.remaining,
-      },
-    ],
-  });
+    });
+  };
+
+  await alignInventory('ORDINARY', DEFAULT_INVENTORY.ordinary);
+  await alignInventory('VIP', DEFAULT_INVENTORY.vip);
 }
 
 async function listInventory() {

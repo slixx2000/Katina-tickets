@@ -136,10 +136,10 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
             </div>
 
             <h3 className="font-headline-sm text-2xl text-[color:var(--checkout-summary-text)] mb-2 leading-snug font-bold">
-              Katina Basil Showcase
+              Fashion Show
             </h3>
             <p className="font-body-md text-xs text-[color:var(--checkout-summary-text)]/85 mb-8 font-sans">
-              Ciela Resort, Lusaka • Private Allocations Access
+              Mulungushi Conference Centre, Lusaka • 30 October 2026, 6 PM - 9 PM
             </p>
 
             {/* Calculations lines list */}
@@ -154,7 +154,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
               </div>
 
               <div className="flex justify-between items-center text-xs sm:text-sm font-sans">
-                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Private Afterparty</span>
+                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Package Benefits</span>
                 <span className="text-[#4E1413] font-label-caps text-[10px] bg-[#F4F4F2] border border-[#F4F4F2] px-2 py-0.5 font-bold">
                   Included
                 </span>

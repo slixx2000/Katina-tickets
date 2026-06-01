@@ -101,9 +101,6 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                       <span className="text-3xl sm:text-4xl md:text-5xl font-display text-[#F4F4F2]">
                         {pkg.price.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-[#F4F4F2]/70 tracking-widest uppercase font-label-caps ml-1">
-                        ZMW
-                      </span>
                     </div>
 
                     <p className={`font-label-caps text-[9px] mt-2 tracking-widest uppercase ${
