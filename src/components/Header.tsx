@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, ShoppingBag, ArrowLeft, Sun, Moon, X } from 'lucide-react';
+import { Menu, ArrowLeft, Sun, Moon, Ticket, X } from 'lucide-react';
+import { SignInButton, SignUpButton, Show, UserButton } from '@clerk/react';
 import { ScreenType } from '../types';
 
 interface HeaderProps {
   currentScreen: ScreenType;
   onNavigate: (screen: ScreenType) => void;
   onBack?: () => void;
-  hasItemsInBag?: boolean;
   isDarkMode: boolean;
   onToggleTheme: () => void;
 }
@@ -16,7 +16,6 @@ export default function Header({
   currentScreen, 
   onNavigate, 
   onBack, 
-  hasItemsInBag,
   isDarkMode,
   onToggleTheme
 }: HeaderProps) {
@@ -65,20 +64,36 @@ export default function Header({
           KATINA BASIL
         </div>
 
-        {/* Right Action: Shopping Bag & Shortcut */}
-        <div className="flex items-center gap-4">
-          <button 
-            className="relative p-2 text-[var(--theme-white-part-text-muted)] hover:text-[var(--app-cta-hover)] transition-colors cursor-pointer"
-            onClick={() => {
-              setMenuOpen(false);
-              onNavigate('select-allocation');
-            }}
-          >
-            <ShoppingBag className="w-5 h-5 text-[var(--app-cta-hover)]" />
-            {hasItemsInBag && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--app-cta-hover)] rounded-full shadow-[0_0_8px_rgba(78,20,19,0.8)]"></span>
-            )}
-          </button>
+        {/* Right Action: Auth Controls */}
+        <div className="flex items-center gap-4 md:gap-5">
+          <Show when="signed-out">
+            <SignInButton mode="modal">
+              <button className="px-4 py-2 text-[10px] md:text-xs tracking-[0.16em] font-bold uppercase border border-[color:var(--theme-white-part-border)] text-[var(--theme-white-part-text)] hover:bg-[color:var(--app-cta-hover)]/10 transition-colors">
+                Sign In
+              </button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <button className="px-4 py-2 text-[10px] md:text-xs tracking-[0.16em] font-bold uppercase bg-[var(--app-cta-hover)] text-[var(--app-on-cta)] border border-[var(--app-cta-hover)] hover:opacity-90 transition-opacity">
+                Sign Up
+              </button>
+            </SignUpButton>
+          </Show>
+
+          <Show when="signed-in">
+            <div className="scale-95 md:scale-105 origin-right">
+              <UserButton>
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label="View My Tickets"
+                    labelIcon={<Ticket className="w-4 h-4" />}
+                    onClick={() => onNavigate('my-tickets')}
+                  />
+                  <UserButton.Action label="manageAccount" />
+                  <UserButton.Action label="signOut" />
+                </UserButton.MenuItems>
+              </UserButton>
+            </div>
+          </Show>
         </div>
       </div>
 
@@ -111,7 +126,7 @@ export default function Header({
                         : 'text-[var(--theme-white-part-text)] hover:bg-[color:var(--app-cta-hover)]/10'
                     }`}
                   >
-                    ACCESS ADMIN DASHBOARD
+                    ADMIN
                   </button>
                 </div>
               </div>

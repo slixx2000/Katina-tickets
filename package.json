@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node scripts/test-runner.cjs",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
@@ -20,6 +20,7 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@clerk/react": "^6.7.2",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.106.1",
     "@tailwindcss/vite": "^4.1.14",
@@ -43,6 +44,7 @@
     "@types/supertest": "^6.0.3",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "supabase": "^2.103.0",
     "supertest": "^7.1.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

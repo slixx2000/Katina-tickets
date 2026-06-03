@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserRole {
+  CUSTOMER
   SUPER_ADMIN
   ORGANIZER
   SCANNER
@@ -68,6 +69,21 @@ enum TicketInventoryType {
   VIP
 }
 
+enum TicketStatus {
+  ACTIVE
+  CHECKED_IN
+  REFUNDED
+  CANCELLED
+}
+
+enum TicketScanResult {
+  VALID
+  ALREADY_CHECKED_IN
+  REFUNDED
+  CANCELLED
+  INVALID_TICKET
+}
+
 model User {
   id             String        @id @default(cuid())
   email          String        @unique
@@ -87,6 +103,8 @@ model User {
   refreshTokens  RefreshToken[]
   payments       PaymentTransaction[]
   reservations   PaymentReservation[]
+  checkedInTickets Ticket[]       @relation("TicketCheckedInBy")
+  ticketScanLogs  TicketScanLog[] @relation("ScannerAdmin")
   mfaFactors     MfaFactor[]
   auditLogs      AuditLog[]    @relation("ActorAuditLogs")
   roleChanges    AuditLog[]    @relation("TargetUserRoleChanges")
@@ -233,8 +251,78 @@ model PaymentReservation {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
+  tickets Ticket[]
+
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([ticketType])
   @@index([createdAt])
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  name      String
+  startsAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+
+  @@index([createdAt])
+}
+
+model Ticket {
+  id                String             @id @default(uuid())
+  ticketId          String             @unique
+  qrCodeValue       String             @unique
+  reservationId     String
+  eventId           String
+  ticketType        TicketInventoryType
+  holderName        String
+  holderEmail       String
+  status            TicketStatus       @default(ACTIVE)
+  pdfStoragePath    String?
+  pdfChecksum       String?
+  pdfGeneratedAt    DateTime?
+  checkedInAt       DateTime?
+  checkedInByAdminId String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  reservation       PaymentReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  checkedInByAdmin  User?              @relation("TicketCheckedInBy", fields: [checkedInByAdminId], references: [id], onDelete: SetNull)
+  scanLogs          TicketScanLog[]
+
+  @@index([reservationId])
+  @@index([eventId])
+  @@index([status])
+  @@index([pdfStoragePath])
+  @@index([holderEmail])
+  @@index([holderName])
+}
+
+model TicketScanLog {
+  id             String           @id @default(uuid())
+  ticketId       String?
+  scannerAdminId String?
+  scanTimestamp  DateTime         @default(now())
+  result         TicketScanResult
+  deviceInfo     Json?
+  scannedValue   String
+
+  ticket         Ticket?          @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  scannerAdmin   User?            @relation("ScannerAdmin", fields: [scannerAdminId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([scannerAdminId])
+  @@index([scanTimestamp])
+  @@index([result])
+}
+
+model TicketSequence {
+  id         Int      @id
+  lastIssued Int      @default(0)
+  updatedAt  DateTime @updatedAt
 }

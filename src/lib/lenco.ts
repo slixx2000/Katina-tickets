@@ -9,6 +9,7 @@ export interface LencoPaymentRequest {
 
 export interface LencoPaymentResponse {
   success: boolean;
+  statusCode?: number;
   message?: string;
   reference?: string;
   checkoutUrl?: string;
@@ -20,6 +21,7 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
   try {
     const response = await fetch('/api/pay', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -30,6 +32,7 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
       const data = await response.json();
       return {
         success: true,
+        statusCode: response.status,
         message: data.message,
         reference: data.reference,
         checkoutUrl: data.checkoutUrl,
@@ -40,7 +43,7 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
 
     const errorBody = await response.json().catch(() => null);
     if (errorBody?.message) {
-      return { success: false, message: errorBody.message };
+      return { success: false, statusCode: response.status, message: errorBody.message };
     }
   } catch {
     return { success: false, message: 'Unable to reach payment service. Please retry shortly.' };

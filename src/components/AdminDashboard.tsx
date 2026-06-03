@@ -18,66 +18,97 @@ interface AdminDashboardProps {
   onSessionRefresh: () => Promise<void>;
 }
 
+type ScannerStats = {
+  totalTicketsSold: number;
+  totalCheckedIn: number;
+  remainingAttendees: number;
+  refundedTickets: number;
+  cancelledTickets: number;
+};
+
+type ScannerTicket = {
+  id: string;
+  ticketId: string;
+  ticketType: 'ordinary' | 'vip';
+  holderName: string;
+  eventName: string;
+  currentStatus: 'ACTIVE' | 'CHECKED_IN' | 'REFUNDED' | 'CANCELLED';
+  checkedInAt?: string | null;
+  pdf?: {
+    available: boolean;
+    generatedAt: string | null;
+  };
+};
+
+type ScanResult = {
+  result: 'VALID' | 'ALREADY_CHECKED_IN' | 'REFUNDED' | 'CANCELLED' | 'INVALID_TICKET';
+  ticket: ScannerTicket | null;
+};
+
+type ScanActivityItem = {
+  id: string;
+  scanTimestamp: string;
+  result: 'VALID' | 'ALREADY_CHECKED_IN' | 'REFUNDED' | 'CANCELLED' | 'INVALID_TICKET';
+  scannedValue: string;
+  ticket: {
+    ticketId: string;
+    ticketType: 'ordinary' | 'vip';
+    holderName: string;
+    eventName: string;
+    currentStatus: 'ACTIVE' | 'CHECKED_IN' | 'REFUNDED' | 'CANCELLED';
+    pdf?: {
+      available: boolean;
+      generatedAt: string | null;
+    };
+  } | null;
+};
+
+type SearchItem = {
+  id: string;
+  ticketId: string;
+  qrCodeValue: string;
+  ticketType: 'ordinary' | 'vip';
+  holderName: string;
+  holderEmail: string;
+  status: 'ACTIVE' | 'CHECKED_IN' | 'REFUNDED' | 'CANCELLED';
+  eventName: string;
+  paymentReference: string;
+  checkedInAt: string | null;
+  pdf?: {
+    available: boolean;
+    generatedAt: string | null;
+  };
+};
+
 export default function AdminDashboard({ stats, packages, currentUser, onBackToMain, onUpdateInventory, onSignOut, onSessionRefresh }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'7D' | '30D' | 'YTD'>('30D');
   const [showGuestList, setShowGuestList] = useState(false);
   const [showInventoryCustomizer, setShowInventoryCustomizer] = useState(false);
   const [showStaffAssignments, setShowStaffAssignments] = useState(false);
 
-  // Scanner Simulator States
-  const [scannerActive, setScannerActive] = useState(true);
-  const [scanningMessage, setScanningMessage] = useState('Camera Active. Waiting for ticket barcode...');
-  const [scanResult, setScanResult] = useState<{ success: boolean; guestName: string; details: string; code: string } | null>(null);
+  // Production scanner states
+  const [scanningMessage, setScanningMessage] = useState('Scanner idle. Awaiting QR payload...');
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scannerStats, setScannerStats] = useState<ScannerStats | null>(null);
+  const [recentScans, setRecentScans] = useState<ScanActivityItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
+  const [pdfFilter, setPdfFilter] = useState<'all' | 'synced' | 'pending'>('all');
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [isScannerBusy, setIsScannerBusy] = useState(false);
 
-  // Sound simulation (visibly flashes/alerts)
-  const simulateScanSuccess = (guestName: string, details: string, code: string) => {
-    setScanningMessage('Scanning barcode...');
-    setTimeout(() => {
-      // Create synthetic audio beep for elite realism!
-      try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // high pure beep
-        gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.12);
-      } catch (e) {
-        // Fallback silently if audio context blocked/unsupported
-      }
-
-      setScanResult({
-        success: true,
-        guestName,
-        details,
-        code
-      });
-      setScanningMessage('Access Granted.');
-    }, 750);
-  };
-
-  const handleScanSimulationClick = () => {
-    // Choose a random transaction or current user to scan
-    const candidates = stats.transactions.filter(t => t.status === 'completed');
-    if (candidates.length === 0) {
-      alert('No guest candidates registered to simulate scans.');
-      return;
+  const filteredSearchResults = searchResults.filter((item) => {
+    if (pdfFilter === 'all') {
+      return true;
     }
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
-    simulateScanSuccess(
-      target.fullName, 
-      `${target.ticketType.toUpperCase()} - ${target.quantity} Ticket(s)`,
-      target.id
-    );
-  };
 
-  const resetScanner = () => {
-    setScanResult(null);
-    setScanningMessage('Camera Active. Waiting for ticket barcode...');
-  };
+    const isSynced = Boolean(item.pdf?.available);
+    if (pdfFilter === 'synced') {
+      return isSynced;
+    }
+
+    return !isSynced;
+  });
 
   // Inventory adjustment temporary inputs
   const [ordinaryPrice, setOrdinaryPrice] = useState(packages.find(p => p.id === 'ordinary')?.price || 725);
@@ -98,6 +129,162 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
     onUpdateInventory(updated);
     setShowInventoryCustomizer(false);
     alert('Ticketing allocations and price limits have been updated.');
+  };
+
+  const fetchScannerDashboard = async () => {
+    try {
+      const response = await fetch('/api/scanner/dashboard', {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        setScannerError('Unable to load scanner dashboard metrics.');
+        return;
+      }
+
+      const payload = await response.json();
+      setScannerStats(payload?.stats ?? null);
+      setRecentScans(Array.isArray(payload?.recentScans) ? payload.recentScans : []);
+      setScannerError(null);
+    } catch {
+      setScannerError('Network error while loading scanner dashboard metrics.');
+    }
+  };
+
+  useEffect(() => {
+    void fetchScannerDashboard();
+  }, []);
+
+  const handleScanSimulationClick = async () => {
+    const scannedValue = window.prompt('Paste scanned QR value to validate this ticket:');
+    if (!scannedValue || scannedValue.trim().length === 0) {
+      return;
+    }
+
+    setIsScannerBusy(true);
+    setScannerError(null);
+    setScanningMessage('Validating ticket payload against database...');
+
+    try {
+      const response = await fetch('/api/scanner/validate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          qrCodeValue: scannedValue.trim(),
+          deviceInfo: {
+            source: 'admin-dashboard',
+          },
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!payload) {
+        setScannerError('Scanner validation returned an unreadable response.');
+        return;
+      }
+
+      setScanResult({
+        result: payload.result,
+        ticket: payload.ticket,
+      });
+
+      if (payload.result === 'VALID') {
+        setScanningMessage('Ticket is valid and ready for check-in approval.');
+      } else {
+        setScanningMessage(`Validation result: ${payload.result}`);
+      }
+
+      await fetchScannerDashboard();
+    } catch {
+      setScannerError('Unable to validate QR payload right now.');
+    } finally {
+      setIsScannerBusy(false);
+    }
+  };
+
+  const resetScanner = () => {
+    setScanResult(null);
+    setScanningMessage('Scanner idle. Awaiting QR payload...');
+  };
+
+  const handleApproveCheckIn = async () => {
+    if (!scanResult?.ticket?.id) {
+      return;
+    }
+
+    setIsScannerBusy(true);
+    setScannerError(null);
+    try {
+      const response = await fetch('/api/scanner/check-in', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          ticketId: scanResult.ticket.id,
+          deviceInfo: {
+            source: 'admin-dashboard',
+          },
+        }),
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!payload) {
+        setScannerError('Check-in response could not be processed.');
+        return;
+      }
+
+      setScanResult({
+        result: payload.result,
+        ticket: payload.ticket,
+      });
+      setScanningMessage(payload.result === 'VALID' ? 'Check-in recorded successfully.' : `Check-in rejected: ${payload.result}`);
+      await fetchScannerDashboard();
+    } catch {
+      setScannerError('Unable to complete check-in right now.');
+    } finally {
+      setIsScannerBusy(false);
+    }
+  };
+
+  const handleSearchTickets = async () => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsScannerBusy(true);
+    setScannerError(null);
+    try {
+      const response = await fetch(`/api/scanner/search?q=${encodeURIComponent(query)}`, {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        setScannerError('Search request was rejected by scanner service.');
+        return;
+      }
+
+      const payload = await response.json();
+      setSearchResults(Array.isArray(payload?.items) ? payload.items : []);
+    } catch {
+      setScannerError('Unable to search tickets right now.');
+    } finally {
+      setIsScannerBusy(false);
+    }
   };
 
   const scannerBgImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuD6lkHjiGOPPxAEP0_HFjywqRR1SAAroa_GodbyqNe-Bt6fV9A9BJIHRDRn1uMnJ7V-PRN-Mc0aONBq0oli8h21ZVEbk-gTKoWgEoas-8xvYm2qM5-tYOgF2eukZ_EP8_kWSOy6TYJffQZlNDD-i97705m9RaaAJHJYm0GcTG6CMhbWipaC2q0IjeyCsd-m-upJ3XSrb_S37ExRdPKCGVncUuQ2UxILp6v1PhxbR7ns4EVQRPNmsFiJz-uzSfL6UldnYccpH3oxarzt";
@@ -367,21 +554,49 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
                     exit={{ scale: 0.8, opacity: 0 }}
                     className="absolute inset-6 bg-[#F4F4F2]/95 border border-[#4E1413]/30 flex flex-col items-center justify-center text-center p-6 z-20 shadow-2xl text-[#2E2E2A]"
                   >
-                    <div className="w-12 h-12 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center mb-3">
-                      <Check className="w-6 h-6 text-green-700 font-bold" />
+                    <div className={`w-12 h-12 rounded-full border flex items-center justify-center mb-3 ${
+                      scanResult.result === 'VALID'
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : 'bg-amber-500/10 border-amber-500/30'
+                    }`}>
+                      {scanResult.result === 'VALID' ? (
+                        <Check className="w-6 h-6 text-green-700 font-bold" />
+                      ) : (
+                        <ShieldAlert className="w-6 h-6 text-amber-700 font-bold" />
+                      )}
                     </div>
-                    <span className="font-label-caps text-[9px] text-green-700 tracking-[0.2em] mb-1 font-bold">ACCESS GRANTED</span>
-                    <h4 className="font-headline-sm text-lg text-[#2E2E2A] mb-1 uppercase font-bold">{scanResult.guestName}</h4>
-                    <p className="text-[10px] text-[#6A6A57] font-sans mb-1 font-medium">{scanResult.details}</p>
-                    <p className="text-[9px] text-[#6A6A57]/60 font-mono mb-4 font-bold">ID: {scanResult.code}</p>
-                    
-                    <button
-                      type="button"
-                      onClick={resetScanner}
-                      className="px-4 py-2 border border-[#6A6A57]/40 text-[#2E2E2A] hover:bg-[#6A6A57]/10 text-[9px] font-label-caps tracking-widest rounded-none cursor-pointer font-bold"
-                    >
-                      Scan Next
-                    </button>
+                    <span className={`font-label-caps text-[9px] tracking-[0.2em] mb-1 font-bold ${scanResult.result === 'VALID' ? 'text-green-700' : 'text-amber-700'}`}>
+                      {scanResult.result}
+                    </span>
+                    <h4 className="font-headline-sm text-lg text-[#2E2E2A] mb-1 uppercase font-bold">
+                      {scanResult.ticket?.holderName ?? 'Unknown Ticket'}
+                    </h4>
+                    <p className="text-[10px] text-[#6A6A57] font-sans mb-1 font-medium">
+                      {scanResult.ticket ? `${scanResult.ticket.ticketType.toUpperCase()} • ${scanResult.ticket.eventName}` : 'No matching ticket found'}
+                    </p>
+                    <p className="text-[9px] text-[#6A6A57]/60 font-mono mb-4 font-bold">
+                      ID: {scanResult.ticket?.ticketId ?? 'N/A'}
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      {scanResult.result === 'VALID' && scanResult.ticket?.currentStatus === 'ACTIVE' ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleApproveCheckIn()}
+                          className="px-4 py-2 border border-green-600/40 text-green-800 hover:bg-green-100 text-[9px] font-label-caps tracking-widest rounded-none cursor-pointer font-bold"
+                        >
+                          APPROVE CHECK-IN
+                        </button>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={resetScanner}
+                        className="px-4 py-2 border border-[#6A6A57]/40 text-[#2E2E2A] hover:bg-[#6A6A57]/10 text-[9px] font-label-caps tracking-widest rounded-none cursor-pointer font-bold"
+                      >
+                        Scan Next
+                      </button>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -391,15 +606,16 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
             <div className="p-6 flex justify-between items-center text-sans bg-[#F4F4F2]/10">
               <div>
                 <h4 className="font-label-caps text-[10px] text-[#F4F4F2]/80 tracking-widest leading-none mb-1.5 font-bold">ENTRY BARCODE SCANNER</h4>
-                <p className={`text-[11px] font-sans font-medium ${scanResult ? 'text-green-400' : 'text-[#F4F4F2]/60'}`}>
+                <p className={`text-[11px] font-sans font-medium ${scanResult?.result === 'VALID' ? 'text-green-400' : 'text-[#F4F4F2]/60'}`}>
                   {scanningMessage}
                 </p>
               </div>
               <button 
                 type="button"
-                onClick={handleScanSimulationClick}
+                onClick={() => void handleScanSimulationClick()}
                 title="Trigger simulated scan"
-                className="w-12 h-12 rounded-full bg-[#F4F4F2] text-[#4E1413] hover:bg-white hover:text-[#4E1413] flex items-center justify-center hover:scale-105 transition-all cursor-pointer shadow-lg shrink-0"
+                disabled={isScannerBusy}
+                className="w-12 h-12 rounded-full bg-[#F4F4F2] text-[#4E1413] hover:bg-white hover:text-[#4E1413] flex items-center justify-center hover:scale-105 transition-all cursor-pointer shadow-lg shrink-0 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 <Camera className="w-5 h-5 shrink-0" />
               </button>
@@ -457,6 +673,113 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
               </span>
               <ArrowRight className="w-4 h-4 text-[#F4F4F2]/60 group-hover:text-white transition-colors shrink-0" />
             </button>
+          </div>
+
+          <div className="bg-[#4E1413] border border-[#6A6A57]/30 p-6 flex flex-col gap-4 text-[#F4F4F2] shadow-md shadow-[#4E1413]/25">
+            <div className="flex items-center justify-between">
+              <h3 className="font-label-caps text-[10px] tracking-widest text-[#F4F4F2]/75 font-bold uppercase">Scanner Metrics</h3>
+              <button
+                type="button"
+                onClick={() => void fetchScannerDashboard()}
+                className="inline-flex items-center gap-1 text-[10px] font-label-caps tracking-widest uppercase border border-[#F4F4F2]/30 px-2.5 py-1 hover:border-[#F4F4F2] transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Refresh
+              </button>
+            </div>
+
+            {scannerError ? (
+              <div className="text-xs text-red-200 border border-red-300/30 bg-red-900/25 px-3 py-2">{scannerError}</div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2 text-[10px] font-label-caps tracking-widest uppercase">
+              <div className="border border-[#F4F4F2]/20 px-3 py-2">Sold: {scannerStats?.totalTicketsSold ?? 0}</div>
+              <div className="border border-[#F4F4F2]/20 px-3 py-2">Checked In: {scannerStats?.totalCheckedIn ?? 0}</div>
+              <div className="border border-[#F4F4F2]/20 px-3 py-2">Remaining: {scannerStats?.remainingAttendees ?? 0}</div>
+              <div className="border border-[#F4F4F2]/20 px-3 py-2">Refunded: {scannerStats?.refundedTickets ?? 0}</div>
+              <div className="border border-[#F4F4F2]/20 px-3 py-2 col-span-2">Cancelled: {scannerStats?.cancelledTickets ?? 0}</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search ticket ID, email, or name"
+                className="flex-1 bg-[#4E1413] border border-[#F4F4F2]/25 px-3 py-2 text-xs text-[#F4F4F2] placeholder:text-[#F4F4F2]/45 focus:outline-none focus:border-[#F4F4F2]/60"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSearchTickets()}
+                className="px-3 py-2 text-[10px] font-label-caps tracking-widest uppercase border border-[#F4F4F2]/30 hover:border-[#F4F4F2] transition-colors cursor-pointer"
+              >
+                Search
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {([
+                { id: 'all', label: 'All PDFs' },
+                { id: 'synced', label: 'Synced' },
+                { id: 'pending', label: 'Pending' },
+              ] as const).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setPdfFilter(option.id)}
+                  className={`px-2.5 py-1 text-[9px] font-label-caps tracking-widest uppercase border transition-colors cursor-pointer ${
+                    pdfFilter === option.id
+                      ? 'border-[#F4F4F2] bg-[#F4F4F2]/15 text-[#F4F4F2]'
+                      : 'border-[#F4F4F2]/25 text-[#F4F4F2]/70 hover:border-[#F4F4F2]/55'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {filteredSearchResults.length > 0 ? (
+              <div className="max-h-40 overflow-y-auto border border-[#F4F4F2]/15 divide-y divide-[#F4F4F2]/10">
+                {filteredSearchResults.map((item) => (
+                  <div key={item.id} className="px-3 py-2 text-xs">
+                    <p className="font-semibold text-[#F4F4F2]">{item.ticketId} • {item.holderName}</p>
+                    <p className="text-[#F4F4F2]/70">{item.holderEmail} • {item.status}</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span
+                        className={`uppercase tracking-widest text-[9px] font-label-caps px-1.5 py-0.5 border ${
+                          item.pdf?.available
+                            ? 'text-green-200 border-green-300/40 bg-green-900/20'
+                            : 'text-amber-200 border-amber-300/40 bg-amber-900/20'
+                        }`}
+                      >
+                        PDF {item.pdf?.available ? 'Synced' : 'Pending'}
+                      </span>
+                      {item.pdf?.generatedAt ? (
+                        <span className="text-[#F4F4F2]/55 text-[9px] font-mono">
+                          {new Date(item.pdf.generatedAt).toLocaleString()}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div>
+              <p className="font-label-caps text-[10px] tracking-widest uppercase text-[#F4F4F2]/70 mb-2 font-bold">Recent Scan Activity</p>
+              <div className="max-h-48 overflow-y-auto border border-[#F4F4F2]/15 divide-y divide-[#F4F4F2]/10">
+                {recentScans.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-[#F4F4F2]/65">No scans recorded yet.</div>
+                ) : (
+                  recentScans.slice(0, 10).map((scan) => (
+                    <div key={scan.id} className="px-3 py-2 text-xs">
+                      <p className="text-[#F4F4F2] font-semibold">{scan.result} • {scan.ticket?.ticketId ?? 'N/A'}</p>
+                      <p className="text-[#F4F4F2]/70">{new Date(scan.scanTimestamp).toLocaleString()}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
 
         </div>

@@ -16,11 +16,14 @@ type SupabaseAuthMockSession = {
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+export const isSupabaseMock = !(supabaseUrl && supabaseAnonKey);
+
+let mockSession: SupabaseAuthMockSession | null = null;
 
 const createMockClient = () => ({
   auth: {
     async getSession() {
-      return { data: { session: null }, error: null };
+      return { data: { session: mockSession }, error: null };
     },
     async signInWithPassword({ email }: { email: string; password: string }) {
       if (!email) {
@@ -52,16 +55,49 @@ const createMockClient = () => ({
         expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
       };
 
+      mockSession = session;
+
       return {
         data: { user: session.user, session },
         error: null,
       };
     },
     async signOut() {
+      mockSession = null;
       return { error: null };
     },
+    async signInWithOAuth({ provider }: { provider: string }) {
+      if (provider !== 'google') {
+        return {
+          data: { provider, url: null },
+          error: new Error('Only Google OAuth is mocked in local mode.'),
+        };
+      }
+
+      const email = 'customer@example.com';
+      const role = 'CUSTOMER';
+      mockSession = {
+        user: {
+          id: `mock-${email.replace(/[^a-z0-9]+/g, '-')}`,
+          email,
+          user_metadata: { role, mfaEnabled: false },
+          app_metadata: { role, mfa_enabled: false },
+        },
+        access_token: `dev-session:${email}:${role}`,
+        refresh_token: `dev-refresh:${email}:${role}`,
+        expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
+      };
+
+      return {
+        data: {
+          provider,
+          url: null,
+        },
+        error: null,
+      };
+    },
     onAuthStateChange(callback: (event: string, session: SupabaseAuthMockSession | null) => void) {
-      callback('INITIAL_SESSION', null);
+      callback('INITIAL_SESSION', mockSession);
       return {
         data: {
           subscription: {

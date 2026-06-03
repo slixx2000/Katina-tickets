@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { CheckCircle, Wallet, Download, Sparkles, Star, Calendar, MapPin, Armchair, Hash } from 'lucide-react';
+import { CheckCircle, Wallet, Download, Sparkles, Star, Hash } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { TicketPackage, RegistrationData } from '../types';
+import logoAndBackground from '../assets/logo_and_bg.png';
 
 interface ReservationConfirmedProps {
   registrationData: RegistrationData;
@@ -19,10 +20,16 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
   const [paymentLabel, setPaymentLabel] = useState<'PENDING' | 'PAID' | 'FAILED'>('PENDING');
   const [ticketToken, setTicketToken] = useState('pending-ticket-token');
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isSyncingReservation, setIsSyncingReservation] = useState(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [syncAttempt, setSyncAttempt] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     setTicketId(paymentReference);
+    setSyncError(null);
+    setIsSyncingReservation(true);
 
     const localStatus = paymentStatus === 'completed' ? 'PAID' : paymentStatus === 'failed' ? 'FAILED' : 'PENDING';
     setPaymentLabel(localStatus);
@@ -30,7 +37,19 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
     const resolveReservation = async () => {
       try {
         const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/reservation`);
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (!mounted) return;
+          if (response.status === 401) {
+            setSyncError('Your session expired. Sign in again to access ticket details.');
+          } else if (response.status === 403) {
+            setSyncError('This ticket cannot be accessed from your account.');
+          } else if (response.status === 404) {
+            setSyncError('Ticket reservation was not found for this reference yet.');
+          } else {
+            setSyncError('Unable to load ticket details right now. Please retry.');
+          }
+          return;
+        }
 
         const payload = await response.json();
         if (!mounted) return;
@@ -50,7 +69,15 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
 
         if (status === 'PAID') {
           const tokenResponse = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-token`);
-          if (tokenResponse.ok) {
+          if (!tokenResponse.ok) {
+            if (tokenResponse.status === 401) {
+              setSyncError('Your session expired. Sign in again to retrieve the ticket token.');
+            } else if (tokenResponse.status === 403) {
+              setSyncError('This ticket token is restricted to the purchasing account.');
+            } else {
+              setSyncError('Ticket details loaded, but token generation is pending.');
+            }
+          } else {
             const tokenPayload = await tokenResponse.json();
             if (typeof tokenPayload?.token === 'string' && tokenPayload.token.length > 0 && mounted) {
               setTicketToken(tokenPayload.token);
@@ -58,7 +85,13 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
           }
         }
       } catch {
-        // Keep pending fallback state.
+        if (mounted) {
+          setSyncError('Network error while syncing reservation details. Please retry.');
+        }
+      } finally {
+        if (mounted) {
+          setIsSyncingReservation(false);
+        }
       }
     };
 
@@ -67,11 +100,13 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
     return () => {
       mounted = false;
     };
-  }, [paymentReference, paymentStatus]);
+  }, [paymentReference, paymentStatus, syncAttempt]);
 
   const handleDownloadPdf = async () => {
+    setDownloadError(null);
+
     if (paymentLabel !== 'PAID') {
-      alert('Ticket PDF becomes available after payment confirmation.');
+      setDownloadError('Ticket PDF becomes available after payment confirmation.');
       return;
     }
 
@@ -80,7 +115,15 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
       const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-pdf`);
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        alert(payload?.message || 'Unable to download ticket PDF right now.');
+        if (response.status === 401) {
+          setDownloadError('Sign in again to download this ticket.');
+        } else if (response.status === 403) {
+          setDownloadError('This ticket belongs to another account.');
+        } else if (response.status === 429) {
+          setDownloadError('Download rate limit reached. Please wait and retry.');
+        } else {
+          setDownloadError(payload?.message || 'Unable to download ticket PDF right now.');
+        }
         return;
       }
 
@@ -94,7 +137,7 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert('Unable to download ticket PDF right now.');
+      setDownloadError('Unable to download ticket PDF right now.');
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -125,6 +168,39 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
           </p>
         </motion.div>
 
+        {isSyncingReservation && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full border border-[#F4F4F2]/25 bg-[#4E1413]/60 px-4 py-3"
+          >
+            <div className="flex items-center justify-between text-[10px] font-label-caps uppercase tracking-[0.2em] text-[#F4F4F2] font-bold">
+              <span>Syncing Ticket Details</span>
+              <span>In Progress</span>
+            </div>
+            <div className="mt-2 h-1 w-full overflow-hidden bg-[#F4F4F2]/15">
+              <motion.div
+                className="h-full bg-[#F4F4F2]"
+                animate={{ x: ['-100%', '100%'] }}
+                transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
+              />
+            </div>
+          </motion.div>
+        )}
+
+        {syncError && (
+          <div className="w-full border border-red-300/35 bg-red-900/30 px-4 py-3 text-red-100 text-sm font-sans flex items-center justify-between gap-4">
+            <span>{syncError}</span>
+            <button
+              type="button"
+              onClick={() => setSyncAttempt((prev) => prev + 1)}
+              className="text-[10px] font-label-caps tracking-widest uppercase border border-red-200/40 px-3 py-1 hover:bg-red-800/35 transition-colors cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* VIP Digital Pass Ticket Card */}
         <motion.div
           initial={{ y: 30, opacity: 0 }}
@@ -137,6 +213,11 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
 
           {/* Maroon outline/pass container */}
           <div className="relative bg-[#4E1413] border border-[#F4F4F2]/20 hover:border-[#F4F4F2]/40 transition-colors duration-700 rounded-none overflow-hidden shadow-2xl flex flex-col text-[#F4F4F2]">
+            <img
+              src={logoAndBackground}
+              alt="Brand mark"
+              className="absolute top-4 right-4 w-16 h-16 md:w-20 md:h-20 object-contain opacity-30 pointer-events-none select-none z-10"
+            />
             
             {/* Header section with brand and star icon */}
             <div className="p-8 md:p-10 flex flex-col gap-6 relative">
@@ -247,6 +328,12 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
             <span>{isDownloadingPdf ? 'DOWNLOADING...' : 'DOWNLOAD TICKET'}</span>
           </button>
         </div>
+
+        {downloadError && (
+          <div className="w-full border border-red-300/35 bg-red-900/30 px-4 py-3 text-red-100 text-sm font-sans">
+            {downloadError}
+          </div>
+        )}
 
         {/* Concierge Portal Option button */}
         <div className="pt-4 flex flex-col items-center font-sans">

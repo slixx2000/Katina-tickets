@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { ArrowDown } from 'lucide-react';
+import logoAndBackground from '../assets/logo_and_bg.png';
 
 interface LandingHeroProps {
   onBuyTickets: () => void;
@@ -9,6 +10,10 @@ interface LandingHeroProps {
 export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHeroProps) {
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-[linear-gradient(180deg,var(--hero-bg-start),var(--hero-bg-mid)_48%,var(--hero-bg-end))]">
+      <div
+        className="absolute inset-0 z-0 pointer-events-none bg-center bg-no-repeat bg-contain opacity-[0.15] mix-blend-soft-light"
+        style={{ backgroundImage: `url(${logoAndBackground})` }}
+      />
       {/* Radiant Glow for luxury depth */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85vw] h-[85vw] max-w-[900px] max-h-[900px] rounded-full bg-[color:var(--hero-glow)] blur-[130px] pointer-events-none z-0 animate-pulse" style={{ animationDuration: '9s' }} />
       <div className="absolute top-1/4 left-1/3 w-[50vw] h-[50vw] max-w-[500px] rounded-full bg-[color:var(--hero-accent-glow)] blur-[100px] pointer-events-none z-0" />
@@ -45,7 +50,7 @@ export default function LandingHero({ onBuyTickets, onExploreMore }: LandingHero
 
           {/* Event subtitle */}
           <p className="font-label-caps text-[color:var(--hero-text-muted)] text-[10px] md:text-xs mb-12 tracking-[0.35em] uppercase max-w-xl leading-relaxed">
-            FASHION SHOW | 30 OCTOBER 2026 | MULUNGUSHI CONFERENCE CENTRE | 6 PM - 9 PM
+            | FASHION SHOW | MULUNGUSHI CONFERENCE CENTRE |
           </p>
 
           {/* Golden/Glass luxury action button */}

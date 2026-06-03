@@ -24,13 +24,33 @@ function getSupabaseAdminClient() {
   });
 }
 
-function readMetadataRole(metadata: Record<string, unknown> | null | undefined): AppRole {
-  const value = metadata?.role ?? metadata?.user_role ?? metadata?.access_role;
-  return normalizeAppRole(value, 'SUPPORT');
+function readMetadataRole(
+  userMetadata: Record<string, unknown> | null | undefined,
+  appMetadata: Record<string, unknown> | null | undefined,
+): AppRole {
+  const value =
+    userMetadata?.role ??
+    userMetadata?.user_role ??
+    userMetadata?.access_role ??
+    appMetadata?.role ??
+    appMetadata?.user_role ??
+    appMetadata?.access_role;
+
+  return normalizeAppRole(value, 'CUSTOMER');
 }
 
-function readMetadataMfaFlag(metadata: Record<string, unknown> | null | undefined): boolean {
-  const value = metadata?.mfaEnabled ?? metadata?.mfa_enabled ?? metadata?.two_factor_enabled;
+function readMetadataMfaFlag(
+  userMetadata: Record<string, unknown> | null | undefined,
+  appMetadata: Record<string, unknown> | null | undefined,
+): boolean {
+  const value =
+    userMetadata?.mfaEnabled ??
+    userMetadata?.mfa_enabled ??
+    userMetadata?.two_factor_enabled ??
+    appMetadata?.mfaEnabled ??
+    appMetadata?.mfa_enabled ??
+    appMetadata?.two_factor_enabled;
+
   return value === true || value === 'true' || value === 1 || value === '1';
 }
 
@@ -49,7 +69,7 @@ export async function verifySupabaseAccessToken(accessToken: string): Promise<Su
   return {
     id: user.id,
     email: user.email,
-    role: readMetadataRole(user.user_metadata ?? user.app_metadata),
-    mfaEnabled: readMetadataMfaFlag(user.user_metadata ?? user.app_metadata),
+    role: readMetadataRole(user.user_metadata, user.app_metadata),
+    mfaEnabled: readMetadataMfaFlag(user.user_metadata, user.app_metadata),
   };
 }

@@ -5,6 +5,8 @@
 export type ScreenType = 
   | 'landing' 
   | 'select-allocation' 
+  | 'customer-auth'
+  | 'my-tickets'
   | 'registration' 
   | 'checkout' 
   | 'confirmed' 

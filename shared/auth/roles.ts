@@ -1,4 +1,5 @@
 export const APP_ROLES = [
+  'CUSTOMER',
   'SUPER_ADMIN',
   'ORGANIZER',
   'SCANNER',

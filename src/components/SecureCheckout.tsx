@@ -18,6 +18,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
   const [securityCode, setSecurityCode] = useState('');
   const [cardholderName, setCardholderName] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Floating label active states
   const [activeInput, setActiveInput] = useState<string | null>(null);
@@ -26,12 +27,13 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
 
   // Calculations
   const basePriceTimesQty = selectedPackage.price * registrationData.quantity;
-  const taxesFees = Math.round(basePriceTimesQty * 0.2); // 20%
+  const taxesFees = Math.round(basePriceTimesQty * 0.01); // 1%
   const grandTotal = basePriceTimesQty + taxesFees;
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessingPayment(true);
+    setCheckoutError(null);
 
     try {
       const result = await processLencoPayment({
@@ -48,7 +50,15 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
       });
 
       if (!result.success) {
-        alert(result.message || 'Payment failed');
+        if (result.statusCode === 401) {
+          setCheckoutError('You must sign in before purchasing tickets. Please return and authenticate.');
+        } else if (result.statusCode === 429) {
+          setCheckoutError('Too many payment attempts were made. Please wait a minute and try again.');
+        } else if (result.statusCode === 503) {
+          setCheckoutError('Payments are temporarily unavailable. Please try again shortly.');
+        } else {
+          setCheckoutError(result.message || 'Payment could not be started. Please retry.');
+        }
         return;
       }
 
@@ -64,7 +74,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
             : 'pending';
 
       if (!result.reference) {
-        alert('Payment provider did not return a reference. Please retry.');
+        setCheckoutError('Payment provider did not return a reference. Please retry.');
         return;
       }
 
@@ -74,6 +84,8 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
         providerReference: result.providerReference,
         status: normalizedStatus,
       });
+    } catch {
+      setCheckoutError('Unexpected checkout error. Please retry in a moment.');
     } finally {
       setIsProcessingPayment(false);
     }
@@ -161,7 +173,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
               </div>
 
               <div className="flex justify-between items-center text-xs sm:text-sm font-sans">
-                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Taxes &amp; Fees (20%)</span>
+                <span className="text-[color:var(--checkout-summary-text)]/80 font-medium">Taxes &amp; Fees (1%)</span>
                 <span className="text-[color:var(--checkout-summary-text)] font-bold">
                   K{taxesFees.toLocaleString()}.00
                 </span>
@@ -182,6 +194,32 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
 
         {/* RIGHT COLUMN: Interactive Payment Form */}
         <div className="lg:col-span-7 order-1 lg:order-2 flex flex-col gap-10">
+          {isProcessingPayment && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="border border-[#F4F4F2]/25 bg-[#4E1413]/50 px-4 py-3 text-[#F4F4F2] font-sans"
+            >
+              <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] font-label-caps font-bold">
+                <span>Processing Secure Payment</span>
+                <span>Please wait</span>
+              </div>
+              <div className="mt-2 h-1 w-full overflow-hidden bg-[#F4F4F2]/15">
+                <motion.div
+                  className="h-full bg-[#F4F4F2]"
+                  animate={{ x: ['-100%', '100%'] }}
+                  transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {checkoutError && (
+            <div className="border border-red-300/40 bg-red-900/30 px-4 py-3 text-red-100 text-sm font-sans">
+              {checkoutError}
+            </div>
+          )}
+
           <div>
             <span className="font-label-caps text-[10px] text-[color:var(--checkout-text)]/80 tracking-[0.3em] uppercase block mb-2 font-bold">SECURE ENDPOINT</span>
             <h1 className="font-display text-4xl sm:text-5xl text-[color:var(--checkout-text)] mb-2 leading-none font-bold">

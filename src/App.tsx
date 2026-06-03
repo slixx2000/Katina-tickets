@@ -3,6 +3,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useUser } from '@clerk/react';
 
 // Core Components Imports
 import Header from './components/Header';
@@ -15,6 +16,8 @@ import AdminDashboard from './components/AdminDashboard';
 import Footer from './components/Footer';
 import AdminLogin from './components/AdminLogin';
 import TermsAndConditionsModal from './components/TermsAndConditionsModal';
+import CustomerAuthGate from './components/CustomerAuthGate';
+import MyTickets from './components/MyTickets';
 import { supabase } from './lib/supabaseClient';
 import { canEnterAdminConsole, clearServerSession, fetchServerSession, type AppSessionUser } from './auth/session';
 
@@ -117,6 +120,7 @@ const INITIAL_STATS: AdminStats = {
 };
 
 export default function App() {
+  const { isSignedIn: isClerkSignedIn, user: clerkUser } = useUser();
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<AppSessionUser | null>(null);
@@ -124,12 +128,12 @@ export default function App() {
   // Custom Dynamic State Handlers
   const [packages, setPackages] = useState<TicketPackage[]>(INITIAL_PACKAGES);
   const [selectedPkgId, setSelectedPkgId] = useState<TicketType | null>(null);
+  const [pendingTicketType, setPendingTicketType] = useState<TicketType | null>(null);
+  const [pendingPostAuthScreen, setPendingPostAuthScreen] = useState<ScreenType | null>(null);
   const [registrationData, setRegistrationData] = useState<RegistrationData | null>(null);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats>(INITIAL_STATS);
-
-  // Bag indicator flag
-  const hasItemsInBag = selectedPkgId !== null;
+  const hasAuthenticatedCustomer = Boolean(currentUser) || Boolean(isClerkSignedIn);
 
   // T&C agreement state — persisted in sessionStorage so accepted once per visit
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
@@ -169,11 +173,40 @@ export default function App() {
     pendingNavAfterTerms.current = null;
   };
 
+  const exchangeSupabaseSession = async (): Promise<AppSessionUser | null> => {
+    const sessionPayload = await supabase.auth.getSession();
+    const accessToken = sessionPayload.data?.session?.access_token;
+    if (!accessToken) {
+      return null;
+    }
+
+    const exchangeResponse = await fetch('/api/auth/exchange', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ accessToken }),
+    });
+
+    if (!exchangeResponse.ok) {
+      return null;
+    }
+
+    await supabase.auth.signOut({ scope: 'local' });
+    return await fetchServerSession();
+  };
+
   useEffect(() => {
     let mounted = true;
 
     const syncSession = async () => {
-      const user = await fetchServerSession();
+      let user = await fetchServerSession();
+
+      if (!user) {
+        user = await exchangeSupabaseSession();
+      }
+
       if (mounted) {
         setCurrentUser(user);
       }
@@ -226,6 +259,64 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!isClerkSignedIn || !clerkUser || currentUser) {
+      return;
+    }
+
+    const primaryEmail =
+      clerkUser.primaryEmailAddress?.emailAddress ||
+      clerkUser.emailAddresses[0]?.emailAddress ||
+      '';
+
+    if (!primaryEmail) {
+      return;
+    }
+
+    // Bridge Clerk-only sessions into the app's existing auth shape.
+    setCurrentUser({
+      id: clerkUser.id,
+      email: primaryEmail,
+      role: 'CUSTOMER',
+      mfaEnabled: false,
+    });
+  }, [isClerkSignedIn, clerkUser, currentUser]);
+
+  useEffect(() => {
+    if (isClerkSignedIn) {
+      return;
+    }
+
+    // Keep Supabase-backed admin sessions intact, but clear Clerk-bridged customer session data.
+    if (currentUser?.role === 'CUSTOMER') {
+      setCurrentUser(null);
+    }
+  }, [isClerkSignedIn, currentUser]);
+
+  useEffect(() => {
+    if (currentScreen !== 'customer-auth' || !hasAuthenticatedCustomer) {
+      return;
+    }
+
+    if (pendingTicketType) {
+      setSelectedPkgId(pendingTicketType);
+      setPendingTicketType(null);
+      setCurrentScreen('registration');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (pendingPostAuthScreen) {
+      setCurrentScreen(pendingPostAuthScreen);
+      setPendingPostAuthScreen(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    setCurrentScreen('select-allocation');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentScreen, hasAuthenticatedCustomer, pendingTicketType, pendingPostAuthScreen]);
+
+  useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
@@ -233,18 +324,37 @@ export default function App() {
   const activeSelectedPackage = packages.find(p => p.id === selectedPkgId) || packages[0];
 
   const handleSelectPackage = (id: TicketType) => {
+    if (!hasAuthenticatedCustomer) {
+      setPendingTicketType(id);
+      setCurrentScreen('customer-auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setSelectedPkgId(id);
     setCurrentScreen('registration');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleRegistrationSubmit = (data: RegistrationData) => {
+    if (!hasAuthenticatedCustomer) {
+      setCurrentScreen('customer-auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setRegistrationData(data);
     setCurrentScreen('checkout');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCheckoutSubmit = (data: PaymentData) => {
+    if (!hasAuthenticatedCustomer) {
+      setCurrentScreen('customer-auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setPaymentData(data);
     
     // Add real-time booked ticket registration to the admin metrics list!
@@ -297,6 +407,10 @@ export default function App() {
   const handleBackNavigation = () => {
     if (currentScreen === 'select-allocation') {
       setCurrentScreen('landing');
+    } else if (currentScreen === 'my-tickets') {
+      setCurrentScreen('landing');
+    } else if (currentScreen === 'customer-auth') {
+      setCurrentScreen('select-allocation');
     } else if (currentScreen === 'registration') {
       setCurrentScreen('select-allocation');
     } else if (currentScreen === 'checkout') {
@@ -316,22 +430,30 @@ export default function App() {
     setCurrentUser(await fetchServerSession());
   };
 
+  const handleNavigate = (screen: ScreenType) => {
+    if (screen === 'my-tickets' && !hasAuthenticatedCustomer) {
+      setPendingPostAuthScreen('my-tickets');
+      setCurrentScreen('customer-auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    setCurrentScreen(screen);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="relative min-h-screen bg-[var(--app-canvas)] text-[var(--app-text)] selection:bg-[var(--app-cta-hover)] selection:text-[var(--app-on-cta)] flex flex-col justify-between overflow-x-hidden transition-all duration-500">
       
       {/* Absolute Dynamic Header Navigation Portal */}
       <Header 
         currentScreen={currentScreen} 
-        onNavigate={(screen) => {
-          setCurrentScreen(screen);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onNavigate={handleNavigate}
         onBack={
-          ['select-allocation', 'registration', 'checkout', 'confirmed'].includes(currentScreen)
+          ['select-allocation', 'customer-auth', 'my-tickets', 'registration', 'checkout', 'confirmed'].includes(currentScreen)
             ? handleBackNavigation
             : undefined
         }
-        hasItemsInBag={hasItemsInBag}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode((prev: boolean) => !prev)}
       />
@@ -366,6 +488,24 @@ export default function App() {
               <SelectAllocation 
                 packages={packages.slice(0, 2)} 
                 onSelect={handleSelectPackage} 
+              />
+            )}
+
+            {currentScreen === 'customer-auth' && (
+              <CustomerAuthGate
+                onBack={handleBackNavigation}
+              />
+            )}
+
+            {currentScreen === 'my-tickets' && (
+              <MyTickets
+                onBack={handleBackNavigation}
+                currentUser={currentUser}
+                onSignOut={async () => {
+                  await clearServerSession();
+                  setCurrentUser(null);
+                  setCurrentScreen('landing');
+                }}
               />
             )}
 

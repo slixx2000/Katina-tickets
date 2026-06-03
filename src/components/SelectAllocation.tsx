@@ -103,11 +103,13 @@ export default function SelectAllocation({ packages, onSelect }: SelectAllocatio
                       </span>
                     </div>
 
-                    <p className={`font-label-caps text-[9px] mt-2 tracking-widest uppercase ${
-                      isUltra ? 'text-[#F4F4F2]/70' : 'text-[#F4F4F2]/50'
-                    }`}>
-                      {pkg.remaining} ALLOWED CONCESSIONS REMAINING
-                    </p>
+                    {pkg.remaining <= 20 && (
+                      <p className={`font-label-caps text-[9px] mt-2 tracking-widest uppercase ${
+                        isUltra ? 'text-[#F4F4F2]/70' : 'text-[#F4F4F2]/50'
+                      }`}>
+                        {pkg.remaining} ALLOWED CONCESSIONS REMAINING
+                      </p>
+                    )}
                   </div>
 
                   {/* Aesthetic divider line */}

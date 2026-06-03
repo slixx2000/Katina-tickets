@@ -3,6 +3,7 @@ import 'dotenv/config';
 import express, {type Request, type Response} from 'express';
 import type { Prisma } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { createClient } from '@supabase/supabase-js';
 import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies';
 import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index';
 import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit';
@@ -11,7 +12,7 @@ import type { SessionStore } from './auth/session-store';
 import { InMemoryAuthRepository } from './auth/repository';
 import type { AuthRepository } from './auth/repository';
 import { verifySupabaseAccessToken } from './auth/supabase';
-import { MFA_RECOMMENDED_ROLES, type AppRole } from '../shared/auth/roles';
+import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared/auth/roles';
 import { isPrismaAvailable, prisma } from './lib/prisma';
 import { PrismaSessionStore } from './auth/prisma-session-store';
 import { PrismaAuthRepository } from './auth/prisma-repository';
@@ -61,6 +62,16 @@ type MfaDisableRequest = {
   code?: unknown;
 };
 
+type ScannerValidateRequest = {
+  qrCodeValue?: unknown;
+  deviceInfo?: unknown;
+};
+
+type ScannerCheckInRequest = {
+  ticketId?: unknown;
+  deviceInfo?: unknown;
+};
+
 type SessionPayload = {
   authenticated: boolean;
   user: AuthPrincipal | null;
@@ -75,14 +86,138 @@ const DEFAULT_INVENTORY: Record<TicketTypeKey, { price: number; totalCap: number
   vip: { price: 1250, totalCap: 300, remaining: 300 },
 };
 
+const DEFAULT_EVENT_SLUG = 'fashion-show-2026';
+const DEFAULT_EVENT_NAME = 'Fashion Show 2026';
+const DEFAULT_EVENT_YEAR = '2026';
+const DEFAULT_TICKET_PDF_BUCKET = 'tickets';
+
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const sessionStore: SessionStore = isPrismaAvailable() ? new PrismaSessionStore(prisma) : new InMemorySessionStore();
 const authRepository: AuthRepository = isPrismaAvailable() ? new PrismaAuthRepository(prisma) : new InMemoryAuthRepository();
 const sessionCookieName = buildAuthCookieName('katina-session');
 const refreshCookieName = buildAuthCookieName('katina-refresh');
-const allowedOrigins = [process.env.APP_URL, process.env.APP_ORIGIN, process.env.VITE_APP_URL].filter(
-  (value): value is string => typeof value === 'string' && value.length > 0,
+
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+const startupTimestamp = Date.now();
+
+function logEvent(level: LogLevel, event: string, data: Record<string, unknown> = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    service: 'katina-tickets-api',
+    environment: process.env.NODE_ENV || 'development',
+    ...data,
+  };
+
+  const message = JSON.stringify(payload);
+  if (level === 'error') {
+    console.error(message);
+    return;
+  }
+
+  if (level === 'warn') {
+    console.warn(message);
+    return;
+  }
+
+  console.log(message);
+}
+
+function hasValue(value: string | undefined) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateStartupConfig() {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const dbConfigured = isPrismaAvailable();
+  const dbRequired = nodeEnv === 'production' || process.env.REQUIRE_DATABASE === 'true';
+  const appUrlConfigured = hasValue(process.env.APP_URL) || hasValue(process.env.APP_ORIGIN);
+  const supabaseUrlConfigured = hasValue(process.env.SUPABASE_URL) || hasValue(process.env.VITE_SUPABASE_URL);
+  const supabaseServiceKeyConfigured = hasValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  if (!appUrlConfigured) {
+    warnings.push('APP_URL_OR_ORIGIN_MISSING');
+  }
+
+  if (dbRequired && !dbConfigured) {
+    errors.push('DATABASE_URL_REQUIRED');
+  }
+
+  if (supabaseServiceKeyConfigured && !supabaseUrlConfigured) {
+    errors.push('SUPABASE_URL_REQUIRED_WITH_SERVICE_KEY');
+  }
+
+  if (hasValue(process.env.SUPABASE_TICKETS_BUCKET) && (!supabaseUrlConfigured || !supabaseServiceKeyConfigured)) {
+    warnings.push('TICKET_STORAGE_BUCKET_CONFIGURED_WITHOUT_SUPABASE_ADMIN_CREDENTIALS');
+  }
+
+  return {
+    nodeEnv,
+    dbConfigured,
+    dbRequired,
+    errors,
+    warnings,
+  };
+}
+
+async function checkDatabaseReadiness() {
+  if (!isPrismaAvailable()) {
+    return {
+      configured: false,
+      ready: true,
+      reason: 'DATABASE_NOT_CONFIGURED',
+    };
+  }
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return {
+      configured: true,
+      ready: true,
+      reason: 'OK',
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      ready: false,
+      reason: error instanceof Error ? error.message : 'DATABASE_UNAVAILABLE',
+    };
+  }
+}
+
+function normalizeAllowedOrigin(value: string | undefined) {
+  if (!value || value.trim().length === 0) {
+    return null;
+  }
+
+  const raw = value.trim();
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return raw;
+  }
+}
+
+const configuredOrigins = [
+  process.env.APP_URL,
+  process.env.APP_ORIGIN,
+  process.env.VITE_APP_URL,
+  ...(process.env.CSRF_ALLOWED_ORIGINS || '').split(',').map((value) => value.trim()),
+]
+  .map((value) => normalizeAllowedOrigin(value))
+  .filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+const allowedOrigins = Array.from(
+  new Set([
+    ...configuredOrigins,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ]),
 );
 const authRateLimiter = createInMemoryRateLimiter({ limit: 8, windowMs: 60_000 });
 const paymentRateLimiter = createInMemoryRateLimiter({ limit: 20, windowMs: 60_000 });
@@ -97,6 +232,24 @@ app.use(
     },
   }),
 );
+
+app.use((request, response, next) => {
+  const requestStart = process.hrtime.bigint();
+
+  response.on('finish', () => {
+    const elapsedMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+    logEvent('info', 'http.request.completed', {
+      method: request.method,
+      path: request.path,
+      statusCode: response.statusCode,
+      durationMs: Number(elapsedMs.toFixed(2)),
+      ip: request.ip,
+      userAgent: request.header('user-agent') ?? null,
+    });
+  });
+
+  next();
+});
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -160,7 +313,10 @@ async function emitAuditEvent(event: AuditEvent) {
       metadata: payload.metadata,
     });
   } catch (error) {
-    console.warn('[audit] Failed to persist audit event', error);
+    logEvent('warn', 'audit.persist.failed', {
+      action: payload.name,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -415,8 +571,22 @@ function signTicketToken(reference: string) {
 
 function isDevAuthBypassEnabled() {
   const flag = String(process.env.ALLOW_DEV_AUTH_BYPASS ?? '').toLowerCase();
-  const env = process.env.NODE_ENV;
-  return (env === 'development' || env === 'test') && flag === 'true';
+  const env = String(process.env.NODE_ENV ?? '').toLowerCase();
+  const isDevOrTest = env === 'development' || env === 'test';
+  return isDevOrTest && flag === 'true';
+}
+
+function isLoopbackOrigin(originHeader: string | undefined) {
+  if (!originHeader) {
+    return false;
+  }
+
+  try {
+    const url = new URL(originHeader);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
+  } catch {
+    return false;
+  }
 }
 
 async function buildTicketPdfBytes(input: {
@@ -426,6 +596,7 @@ async function buildTicketPdfBytes(input: {
   ticketType: TicketTypeKey;
   quantity: number;
   seatDetails: string[];
+  qrCodeValue: string;
 }) {
   const document = await PDFDocument.create();
   const page = document.addPage([595, 842]); // A4
@@ -472,7 +643,6 @@ async function buildTicketPdfBytes(input: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  const token = signTicketToken(input.reference);
   page.drawText('Ticket Token (Scanner Payload)', {
     x: 56,
     y: 448,
@@ -480,7 +650,7 @@ async function buildTicketPdfBytes(input: {
     font: fontBold,
     color: rgb(0.1, 0.1, 0.1),
   });
-  page.drawText(token, {
+  page.drawText(input.qrCodeValue, {
     x: 56,
     y: 428,
     size: 8,
@@ -491,6 +661,241 @@ async function buildTicketPdfBytes(input: {
   });
 
   return await document.save();
+}
+
+function buildTicketPdfStoragePath(reference: string) {
+  const normalizedReference = reference.replace(/[^A-Za-z0-9_-]/g, '-');
+  return `${DEFAULT_EVENT_YEAR}/${normalizedReference}.pdf`;
+}
+
+function computeSha256Hex(value: Uint8Array) {
+  return crypto.createHash('sha256').update(Buffer.from(value)).digest('hex');
+}
+
+function isValidPdfBuffer(value: Uint8Array) {
+  if (value.length < 5) {
+    return false;
+  }
+
+  const signature = Buffer.from(value.slice(0, 5)).toString('utf8');
+  return signature === '%PDF-';
+}
+
+function getTicketStorageClient() {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const bucket = process.env.SUPABASE_TICKETS_BUCKET || DEFAULT_TICKET_PDF_BUCKET;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const client = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  return {
+    client,
+    bucket,
+  };
+}
+
+async function downloadTicketPdfFromStorage(storagePath: string) {
+  const storage = getTicketStorageClient();
+  if (!storage) {
+    return null;
+  }
+
+  const result = await storage.client.storage.from(storage.bucket).download(storagePath);
+  if (result.error || !result.data) {
+    return null;
+  }
+
+  const buffer = new Uint8Array(await result.data.arrayBuffer());
+  return isValidPdfBuffer(buffer) ? buffer : null;
+}
+
+async function uploadTicketPdfToStorage(storagePath: string, bytes: Uint8Array) {
+  const storage = getTicketStorageClient();
+  if (!storage) {
+    return false;
+  }
+
+  const result = await storage.client.storage.from(storage.bucket).upload(storagePath, Buffer.from(bytes), {
+    cacheControl: '3600',
+    contentType: 'application/pdf',
+    upsert: true,
+  });
+
+  return !result.error;
+}
+
+async function ensureDefaultEvent() {
+  if (!isPrismaAvailable()) {
+    return null;
+  }
+
+  return await prisma.event.upsert({
+    where: { slug: DEFAULT_EVENT_SLUG },
+    update: { name: DEFAULT_EVENT_NAME },
+    create: {
+      slug: DEFAULT_EVENT_SLUG,
+      name: DEFAULT_EVENT_NAME,
+      startsAt: new Date('2026-10-30T18:00:00.000Z'),
+    },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+}
+
+function buildTicketIdFromSequence(sequenceNumber: number) {
+  return `KB-${DEFAULT_EVENT_YEAR}-${String(sequenceNumber).padStart(6, '0')}`;
+}
+
+function buildQrCodeValue() {
+  return `ktk_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+async function issueNextTicketSequenceNumber(tx: Prisma.TransactionClient) {
+  const sequence = await tx.ticketSequence.upsert({
+    where: { id: 1 },
+    update: {
+      lastIssued: {
+        increment: 1,
+      },
+    },
+    create: {
+      id: 1,
+      lastIssued: 1,
+    },
+    select: {
+      lastIssued: true,
+    },
+  });
+
+  return sequence.lastIssued;
+}
+
+async function createTicketsForReservation(tx: Prisma.TransactionClient, input: {
+  reservationId: string;
+  eventId: string;
+  ticketType: 'ORDINARY' | 'VIP';
+  holderName: string;
+  holderEmail: string;
+  quantity: number;
+}) {
+  const existingCount = await tx.ticket.count({
+    where: { reservationId: input.reservationId },
+  });
+
+  const missingCount = Math.max(0, input.quantity - existingCount);
+  if (missingCount === 0) {
+    return;
+  }
+
+  for (let index = 0; index < missingCount; index += 1) {
+    const sequenceNumber = await issueNextTicketSequenceNumber(tx);
+    await tx.ticket.create({
+      data: {
+        ticketId: buildTicketIdFromSequence(sequenceNumber),
+        qrCodeValue: buildQrCodeValue(),
+        reservationId: input.reservationId,
+        eventId: input.eventId,
+        ticketType: input.ticketType,
+        holderName: input.holderName,
+        holderEmail: input.holderEmail,
+      },
+    });
+  }
+}
+
+async function backfillTicketsFromReservations(eventId: string) {
+  if (!isPrismaAvailable()) {
+    return;
+  }
+
+  const reservations = await prisma.paymentReservation.findMany({
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      quantity: true,
+      ticketType: true,
+      tickets: {
+        select: { id: true },
+      },
+    },
+  });
+
+  for (const reservation of reservations) {
+    if (reservation.tickets.length >= reservation.quantity) {
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await createTicketsForReservation(tx, {
+        reservationId: reservation.id,
+        eventId,
+        ticketType: reservation.ticketType,
+        holderName: reservation.fullName,
+        holderEmail: reservation.email,
+        quantity: reservation.quantity,
+      });
+    });
+  }
+}
+
+async function ensureTicketDomainSeed() {
+  if (!isPrismaAvailable()) {
+    return;
+  }
+
+  const event = await ensureDefaultEvent();
+  if (!event) {
+    return;
+  }
+
+  await backfillTicketsFromReservations(event.id);
+}
+
+function resolveScanResultForTicketStatus(status: 'ACTIVE' | 'CHECKED_IN' | 'REFUNDED' | 'CANCELLED') {
+  if (status === 'ACTIVE') {
+    return 'VALID' as const;
+  }
+  if (status === 'CHECKED_IN') {
+    return 'ALREADY_CHECKED_IN' as const;
+  }
+  if (status === 'REFUNDED') {
+    return 'REFUNDED' as const;
+  }
+  return 'CANCELLED' as const;
+}
+
+async function recordTicketScanLog(input: {
+  ticketId?: string | null;
+  scannerAdminId?: string | null;
+  result: 'VALID' | 'ALREADY_CHECKED_IN' | 'REFUNDED' | 'CANCELLED' | 'INVALID_TICKET';
+  scannedValue: string;
+  deviceInfo?: Record<string, unknown>;
+}) {
+  if (!isPrismaAvailable()) {
+    return;
+  }
+
+  await prisma.ticketScanLog.create({
+    data: {
+      ticketId: input.ticketId ?? null,
+      scannerAdminId: input.scannerAdminId ?? null,
+      result: input.result,
+      scannedValue: input.scannedValue,
+      deviceInfo: toPrismaJson(input.deviceInfo),
+    },
+  });
 }
 
 async function ensureTicketInventorySeed() {
@@ -563,6 +968,11 @@ async function finalizeReservationForPaidPayment(reference: string) {
     return false;
   }
 
+  const event = await ensureDefaultEvent();
+  if (!event) {
+    return false;
+  }
+
   const payment = await prisma.paymentTransaction.findUnique({
     where: { reference },
     select: {
@@ -590,6 +1000,14 @@ async function finalizeReservationForPaidPayment(reference: string) {
     await prisma.$transaction(async (tx) => {
       const existing = await tx.paymentReservation.findUnique({ where: { paymentReference: reference } });
       if (existing) {
+        await createTicketsForReservation(tx, {
+          reservationId: existing.id,
+          eventId: event.id,
+          ticketType: toInventoryEnum(ticketType),
+          holderName: existing.fullName,
+          holderEmail: existing.email,
+          quantity: existing.quantity,
+        });
         return;
       }
 
@@ -607,7 +1025,7 @@ async function finalizeReservationForPaidPayment(reference: string) {
         throw new Error('INSUFFICIENT_INVENTORY');
       }
 
-      await tx.paymentReservation.create({
+      const reservation = await tx.paymentReservation.create({
         data: {
           paymentReference: reference,
           userId: payment.userId,
@@ -618,11 +1036,60 @@ async function finalizeReservationForPaidPayment(reference: string) {
           seatDetails: buildSeatDetails(reference, ticketType, quantity),
         },
       });
+
+      await createTicketsForReservation(tx, {
+        reservationId: reservation.id,
+        eventId: event.id,
+        ticketType: toInventoryEnum(ticketType),
+        holderName: reservation.fullName,
+        holderEmail: reservation.email,
+        quantity: reservation.quantity,
+      });
     });
     return true;
   } catch {
     return false;
   }
+}
+
+async function queueTicketDeliveryAfterPersistence(reference: string) {
+  if (!isPrismaAvailable()) {
+    return false;
+  }
+
+  const reservation = await prisma.paymentReservation.findUnique({
+    where: { paymentReference: reference },
+    select: {
+      id: true,
+      email: true,
+      quantity: true,
+      tickets: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!reservation || reservation.tickets.length < reservation.quantity) {
+    logEvent('warn', 'ticket.delivery.skipped.persistence-incomplete', {
+      reference,
+      reservationFound: Boolean(reservation),
+      expectedTicketCount: reservation?.quantity ?? null,
+      actualTicketCount: reservation?.tickets.length ?? null,
+    });
+    return false;
+  }
+
+  // Delivery integration point: this executes only after reservation + ticket persistence has been verified.
+  logEvent('info', 'ticket.delivery.ready', {
+    reference,
+    email: reservation.email,
+    ticketCount: reservation.tickets.length,
+    providerConfigured: hasValue(process.env.TICKET_DELIVERY_PROVIDER),
+  });
+
+  return true;
 }
 
 async function persistPaymentIntent(input: {
@@ -712,8 +1179,44 @@ async function persistWebhookDelivery(input: {
   }
 }
 
-app.get('/api/health', (_request: Request, response: Response) => {
-  response.json({ok: true, service: 'katina-tickets-api'});
+app.get('/api/health', async (_request: Request, response: Response) => {
+  const db = await checkDatabaseReadiness();
+
+  response.json({
+    ok: true,
+    service: 'katina-tickets-api',
+    uptimeSeconds: Math.round((Date.now() - startupTimestamp) / 1000),
+    environment: process.env.NODE_ENV || 'development',
+    dependencies: {
+      database: db,
+    },
+  });
+});
+
+app.get('/api/readiness', async (_request: Request, response: Response) => {
+  const db = await checkDatabaseReadiness();
+  const ready = db.ready;
+
+  if (!ready) {
+    response.status(503).json({
+      ok: false,
+      ready: false,
+      service: 'katina-tickets-api',
+      dependencies: {
+        database: db,
+      },
+    });
+    return;
+  }
+
+  response.json({
+    ok: true,
+    ready: true,
+    service: 'katina-tickets-api',
+    dependencies: {
+      database: db,
+    },
+  });
 });
 
 app.get('/api/inventory', async (_request: Request, response: Response) => {
@@ -799,17 +1302,36 @@ app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins
       mfaEnabled: hasActiveMfaFactor ? true : user.mfaEnabled,
     };
   } else if (isDevAuthBypassEnabled() && accessToken.startsWith('dev-session:')) {
-    const [, email = '', role = 'SUPPORT'] = accessToken.split(':');
-    if (!isNonEmptyString(email)) {
+    if (!isLoopbackOrigin(request.headers.origin)) {
+      response.status(403).json({ success: false, message: 'Development auth bypass is only allowed from localhost origins.' });
+      return;
+    }
+
+    const tokenParts = accessToken.split(':');
+    if (tokenParts.length !== 3) {
+      response.status(400).json({ success: false, message: 'Invalid development token format.' });
+      return;
+    }
+
+    const [, email = '', role = 'CUSTOMER'] = tokenParts;
+    if (!isNonEmptyString(email) || !email.includes('@')) {
       response.status(400).json({ success: false, message: 'Invalid development token.' });
       return;
     }
 
-    principal = {
-      userId: `dev-${crypto.createHash('sha1').update(email).digest('hex').slice(0, 12)}`,
+    const bypassRole = normalizeAppRole(role, 'CUSTOMER');
+    const user = await authRepository.upsertUserFromOAuth({
+      id: `dev-${crypto.createHash('sha1').update(email).digest('hex').slice(0, 12)}`,
       email,
-      role: role as AppRole,
-      mfaEnabled: resolveMfaFlag(role as AppRole),
+      role: bypassRole,
+      mfaEnabled: resolveMfaFlag(bypassRole),
+    });
+
+    principal = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      mfaEnabled: user.mfaEnabled,
     };
   }
 
@@ -1208,6 +1730,16 @@ const requireAuthenticatedSession = async (request: Request): Promise<AuthPrinci
   return principal;
 };
 
+const PAYMENT_ADMIN_ROLES: readonly AppRole[] = ['SUPER_ADMIN', 'FINANCE', 'SUPPORT'];
+
+function canAccessPaymentReference(principal: AuthPrincipal, paymentUserId: string | null) {
+  if (PAYMENT_ADMIN_ROLES.includes(principal.role)) {
+    return true;
+  }
+
+  return Boolean(paymentUserId && principal.userId === paymentUserId);
+}
+
 app.get('/api/admin/overview', async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
@@ -1243,7 +1775,382 @@ app.get('/api/scanner/dashboard', async (request: Request, response: Response) =
     return;
   }
 
-  response.json({ success: true, section: 'scanner', user: principal });
+  if (!isPrismaAvailable()) {
+    response.json({
+      success: true,
+      section: 'scanner',
+      user: principal,
+      stats: {
+        totalTicketsSold: 0,
+        totalCheckedIn: 0,
+        remainingAttendees: 0,
+        refundedTickets: 0,
+        cancelledTickets: 0,
+      },
+      recentScans: [],
+    });
+    return;
+  }
+
+  const [
+    totalTicketsSold,
+    totalCheckedIn,
+    remainingAttendees,
+    refundedTickets,
+    cancelledTickets,
+    recentScans,
+  ] = await Promise.all([
+    prisma.ticket.count(),
+    prisma.ticket.count({ where: { status: 'CHECKED_IN' } }),
+    prisma.ticket.count({ where: { status: 'ACTIVE' } }),
+    prisma.ticket.count({ where: { status: 'REFUNDED' } }),
+    prisma.ticket.count({ where: { status: 'CANCELLED' } }),
+    prisma.ticketScanLog.findMany({
+      orderBy: { scanTimestamp: 'desc' },
+      take: 25,
+      include: {
+        ticket: {
+          select: {
+            ticketId: true,
+            ticketType: true,
+            holderName: true,
+            status: true,
+            pdfStoragePath: true,
+            pdfChecksum: true,
+            pdfGeneratedAt: true,
+            event: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  response.json({
+    success: true,
+    section: 'scanner',
+    user: principal,
+    stats: {
+      totalTicketsSold,
+      totalCheckedIn,
+      remainingAttendees,
+      refundedTickets,
+      cancelledTickets,
+    },
+    recentScans: recentScans.map((scan) => ({
+      id: scan.id,
+      scanTimestamp: scan.scanTimestamp.toISOString(),
+      result: scan.result,
+      scannedValue: scan.scannedValue,
+      ticket: scan.ticket
+        ? {
+            ticketId: scan.ticket.ticketId,
+            ticketType: fromInventoryEnum(scan.ticket.ticketType),
+            holderName: scan.ticket.holderName,
+            eventName: scan.ticket.event.name,
+            currentStatus: scan.ticket.status,
+            pdf: {
+              available: Boolean(scan.ticket.pdfStoragePath && scan.ticket.pdfChecksum),
+              generatedAt: scan.ticket.pdfGeneratedAt?.toISOString() ?? null,
+            },
+          }
+        : null,
+    })),
+  });
+});
+
+app.get('/api/scanner/search', async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
+    return;
+  }
+
+  if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
+    response.status(403).json({ success: false, message: 'Forbidden.' });
+    return;
+  }
+
+  const query = typeof request.query.q === 'string' ? request.query.q.trim() : '';
+  if (!query) {
+    response.json({ success: true, items: [] });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.json({ success: true, items: [] });
+    return;
+  }
+
+  const tickets = await prisma.ticket.findMany({
+    where: {
+      OR: [
+        { ticketId: { contains: query, mode: 'insensitive' } },
+        { holderEmail: { contains: query, mode: 'insensitive' } },
+        { holderName: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 40,
+    include: {
+      event: {
+        select: {
+          name: true,
+        },
+      },
+      reservation: {
+        select: {
+          paymentReference: true,
+        },
+      },
+    },
+  });
+
+  response.json({
+    success: true,
+    items: tickets.map((ticket) => ({
+      id: ticket.id,
+      ticketId: ticket.ticketId,
+      qrCodeValue: ticket.qrCodeValue,
+      ticketType: fromInventoryEnum(ticket.ticketType),
+      holderName: ticket.holderName,
+      holderEmail: ticket.holderEmail,
+      status: ticket.status,
+      eventName: ticket.event.name,
+      paymentReference: ticket.reservation.paymentReference,
+      checkedInAt: ticket.checkedInAt?.toISOString() ?? null,
+      pdf: {
+        available: Boolean(ticket.pdfStoragePath && ticket.pdfChecksum),
+        generatedAt: ticket.pdfGeneratedAt?.toISOString() ?? null,
+      },
+    })),
+  });
+});
+
+app.post('/api/scanner/validate', async (request: Request<{}, unknown, ScannerValidateRequest>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
+    return;
+  }
+
+  if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
+    response.status(403).json({ success: false, message: 'Forbidden.' });
+    return;
+  }
+
+  const qrCodeValue = typeof request.body.qrCodeValue === 'string' ? request.body.qrCodeValue.trim() : '';
+  if (!qrCodeValue) {
+    response.status(400).json({ success: false, message: 'qrCodeValue is required.' });
+    return;
+  }
+
+  const deviceInfo = {
+    ...(toJsonObject(request.body.deviceInfo) ?? {}),
+    userAgent: request.header('user-agent') ?? null,
+  };
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'Scanner validation requires persistent storage.' });
+    return;
+  }
+
+  const ticket = await prisma.ticket.findUnique({
+    where: { qrCodeValue },
+    include: {
+      event: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!ticket) {
+    await recordTicketScanLog({
+      result: 'INVALID_TICKET',
+      scannedValue: qrCodeValue,
+      scannerAdminId: principal.userId,
+      deviceInfo,
+    });
+
+    response.status(404).json({
+      success: true,
+      result: 'INVALID_TICKET',
+      ticket: null,
+    });
+    return;
+  }
+
+  const result = resolveScanResultForTicketStatus(ticket.status);
+
+  await recordTicketScanLog({
+    ticketId: ticket.id,
+    scannerAdminId: principal.userId,
+    result,
+    scannedValue: qrCodeValue,
+    deviceInfo,
+  });
+
+  response.json({
+    success: true,
+    result,
+    ticket: {
+      id: ticket.id,
+      ticketId: ticket.ticketId,
+      ticketType: fromInventoryEnum(ticket.ticketType),
+      holderName: ticket.holderName,
+      eventName: ticket.event.name,
+      currentStatus: ticket.status,
+      pdf: {
+        available: Boolean(ticket.pdfStoragePath && ticket.pdfChecksum),
+        generatedAt: ticket.pdfGeneratedAt?.toISOString() ?? null,
+      },
+    },
+  });
+});
+
+app.post('/api/scanner/check-in', async (request: Request<{}, unknown, ScannerCheckInRequest>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!(await requireMfaForPrincipal(request, response, principal))) {
+    return;
+  }
+
+  if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
+    response.status(403).json({ success: false, message: 'Forbidden.' });
+    return;
+  }
+
+  const ticketId = typeof request.body.ticketId === 'string' ? request.body.ticketId.trim() : '';
+  if (!ticketId) {
+    response.status(400).json({ success: false, message: 'ticketId is required.' });
+    return;
+  }
+
+  const deviceInfo = {
+    ...(toJsonObject(request.body.deviceInfo) ?? {}),
+    userAgent: request.header('user-agent') ?? null,
+  };
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'Check-in requires persistent storage.' });
+    return;
+  }
+
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: ticketId },
+    include: {
+      event: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!ticket) {
+    await recordTicketScanLog({
+      result: 'INVALID_TICKET',
+      scannedValue: ticketId,
+      scannerAdminId: principal.userId,
+      deviceInfo,
+    });
+
+    response.status(404).json({
+      success: true,
+      result: 'INVALID_TICKET',
+      ticket: null,
+    });
+    return;
+  }
+
+  if (ticket.status !== 'ACTIVE') {
+    const result = resolveScanResultForTicketStatus(ticket.status);
+
+    await recordTicketScanLog({
+      ticketId: ticket.id,
+      scannerAdminId: principal.userId,
+      result,
+      scannedValue: ticket.qrCodeValue,
+      deviceInfo,
+    });
+
+    response.status(409).json({
+      success: true,
+      result,
+      ticket: {
+        id: ticket.id,
+        ticketId: ticket.ticketId,
+        ticketType: fromInventoryEnum(ticket.ticketType),
+        holderName: ticket.holderName,
+        eventName: ticket.event.name,
+        currentStatus: ticket.status,
+        pdf: {
+          available: Boolean(ticket.pdfStoragePath && ticket.pdfChecksum),
+          generatedAt: ticket.pdfGeneratedAt?.toISOString() ?? null,
+        },
+      },
+    });
+    return;
+  }
+
+  const checkedIn = await prisma.ticket.update({
+    where: { id: ticket.id },
+    data: {
+      status: 'CHECKED_IN',
+      checkedInAt: new Date(),
+      checkedInByAdminId: principal.userId,
+    },
+    include: {
+      event: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  await recordTicketScanLog({
+    ticketId: checkedIn.id,
+    scannerAdminId: principal.userId,
+    result: 'VALID',
+    scannedValue: checkedIn.qrCodeValue,
+    deviceInfo,
+  });
+
+  response.json({
+    success: true,
+    result: 'VALID',
+    ticket: {
+      id: checkedIn.id,
+      ticketId: checkedIn.ticketId,
+      ticketType: fromInventoryEnum(checkedIn.ticketType),
+      holderName: checkedIn.holderName,
+      eventName: checkedIn.event.name,
+      currentStatus: checkedIn.status,
+      checkedInAt: checkedIn.checkedInAt?.toISOString() ?? null,
+      pdf: {
+        available: Boolean(checkedIn.pdfStoragePath && checkedIn.pdfChecksum),
+        generatedAt: checkedIn.pdfGeneratedAt?.toISOString() ?? null,
+      },
+    },
+  });
 });
 
 app.get('/api/finance/reports', async (request: Request, response: Response) => {
@@ -1284,8 +2191,86 @@ app.post('/api/organizer/events', async (request: Request, response: Response) =
   response.json({ success: true, section: 'organizer', user: principal });
 });
 
+app.get('/api/me/tickets', async (request: Request, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.json({ success: true, items: [] });
+    return;
+  }
+
+  const reservations = await prisma.paymentReservation.findMany({
+    where: {
+      userId: principal.userId,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+    select: {
+      paymentReference: true,
+      ticketType: true,
+      quantity: true,
+      fullName: true,
+      email: true,
+      seatDetails: true,
+      createdAt: true,
+      tickets: {
+        select: {
+          pdfStoragePath: true,
+          pdfChecksum: true,
+          pdfGeneratedAt: true,
+        },
+      },
+    },
+  });
+
+  const references = reservations.map((row) => row.paymentReference);
+  const paymentStatuses = references.length
+    ? await prisma.paymentTransaction.findMany({
+        where: {
+          reference: { in: references },
+        },
+        select: {
+          reference: true,
+          status: true,
+        },
+      })
+    : [];
+
+  const statusByReference = new Map(paymentStatuses.map((row) => [row.reference, row.status]));
+
+  response.json({
+    success: true,
+    items: reservations.map((row) => ({
+      paymentReference: row.paymentReference,
+      ticketType: fromInventoryEnum(row.ticketType),
+      quantity: row.quantity,
+      fullName: row.fullName,
+      email: row.email,
+      seatDetails: Array.isArray(row.seatDetails)
+        ? row.seatDetails.filter((item): item is string => typeof item === 'string')
+        : [],
+      purchasedAt: row.createdAt.toISOString(),
+      paymentStatus: statusByReference.get(row.paymentReference) ?? 'PENDING',
+      pdf: {
+        available: row.tickets.some((ticket) => Boolean(ticket.pdfStoragePath && ticket.pdfChecksum)),
+        generatedAt: row.tickets.find((ticket) => ticket.pdfGeneratedAt)?.pdfGeneratedAt?.toISOString() ?? null,
+      },
+    })),
+  });
+});
+
 app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: AuthenticatedRequest & Request<unknown, unknown, LencoPaymentRequest>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Sign in is required before purchasing tickets.' });
+    return;
+  }
+
   const {amount, currency, description, customerEmail, customerName, metadata} = request.body;
 
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
@@ -1337,7 +2322,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     description: payload.description,
     customerEmail: payload.customerEmail,
     customerName: payload.customerName,
-    userId: principal?.userId,
+    userId: principal.userId,
     metadata: payload.metadata,
   });
 
@@ -1355,17 +2340,15 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     return;
   }
 
-  if (principal) {
-    await emitAuditEvent({
-      name: 'SESSION_CREATED',
-      actorUserId: principal.userId,
-      targetUserId: principal.userId,
-      resourceType: 'payment-intent',
-      resourceId: reference,
-      metadata: { amount, currency: payload.currency, role: principal.role },
-      request: request as Request,
-    });
-  }
+  await emitAuditEvent({
+    name: 'SESSION_CREATED',
+    actorUserId: principal.userId,
+    targetUserId: principal.userId,
+    resourceType: 'payment-intent',
+    resourceId: reference,
+    metadata: { amount, currency: payload.currency, role: principal.role },
+    request: request as Request,
+  });
 
   response.json({
     success: true,
@@ -1427,6 +2410,19 @@ app.post(
       ? await finalizeReservationForPaidPayment(parsed.reference)
       : false;
 
+    const ticketDeliveryReady = parsed.status === 'PAID' && reservationCreated
+      ? await queueTicketDeliveryAfterPersistence(parsed.reference)
+      : false;
+
+    logEvent('info', 'payment.webhook.processed', {
+      eventId: parsed.providerEventId,
+      reference: parsed.reference,
+      status: parsed.status,
+      transactionUpdated: updated,
+      reservationCreated,
+      ticketDeliveryReady,
+    });
+
     response.json({
       success: true,
       received: true,
@@ -1435,11 +2431,18 @@ app.post(
       status: parsed.status,
       transactionUpdated: updated,
       reservationCreated,
+      ticketDeliveryReady,
     });
   },
 );
 
 app.get('/api/payments/:reference/reservation', async (request: Request<{ reference: string }>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
   const { reference } = request.params;
   if (!reference || reference.trim().length < 8) {
     response.status(400).json({ success: false, message: 'Payment reference is required.' });
@@ -1458,11 +2461,16 @@ app.get('/api/payments/:reference/reservation', async (request: Request<{ refere
 
   const payment = await prisma.paymentTransaction.findUnique({
     where: { reference },
-    select: { status: true },
+    select: { status: true, userId: true },
   });
 
   if (!payment) {
     response.status(404).json({ success: false, message: 'Payment not found for reference.' });
+    return;
+  }
+
+  if (!canAccessPaymentReference(principal, payment.userId ?? null)) {
+    response.status(403).json({ success: false, message: 'You are not authorized to view this reservation.' });
     return;
   }
 
@@ -1496,6 +2504,12 @@ app.get('/api/payments/:reference/reservation', async (request: Request<{ refere
 });
 
 app.get('/api/payments/:reference/ticket-token', async (request: Request<{ reference: string }>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
   const { reference } = request.params;
   if (!reference || reference.trim().length < 8) {
     response.status(400).json({ success: false, message: 'Payment reference is required.' });
@@ -1509,10 +2523,15 @@ app.get('/api/payments/:reference/ticket-token', async (request: Request<{ refer
 
   const payment = await prisma.paymentTransaction.findUnique({
     where: { reference },
-    select: { status: true },
+    select: { status: true, userId: true },
   });
   if (!payment || payment.status !== 'PAID') {
     response.status(404).json({ success: false, message: 'No paid ticket found for this reference.' });
+    return;
+  }
+
+  if (!canAccessPaymentReference(principal, payment.userId ?? null)) {
+    response.status(403).json({ success: false, message: 'You are not authorized to access this ticket.' });
     return;
   }
 
@@ -1525,21 +2544,37 @@ app.get('/api/payments/:reference/ticket-token', async (request: Request<{ refer
     return;
   }
 
-  try {
-    response.json({
-      success: true,
-      reference,
-      token: signTicketToken(reference),
-    });
-  } catch (error) {
-    response.status(500).json({
-      success: false,
-      message: error instanceof Error ? error.message : 'Unable to sign ticket token.',
-    });
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      reservationId: reservation.id,
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+    select: {
+      qrCodeValue: true,
+    },
+  });
+
+  if (!ticket) {
+    response.status(404).json({ success: false, message: 'No ticket token found for this reservation.' });
+    return;
   }
+
+  response.json({
+    success: true,
+    reference,
+    token: ticket.qrCodeValue,
+  });
 });
 
 app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ reference: string }>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
   const { reference } = request.params;
   if (!reference || reference.trim().length < 8) {
     response.status(400).json({ success: false, message: 'Payment reference is required.' });
@@ -1553,21 +2588,37 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
 
   const payment = await prisma.paymentTransaction.findUnique({
     where: { reference },
-    select: { status: true },
+    select: { status: true, userId: true },
   });
   if (!payment || payment.status !== 'PAID') {
     response.status(404).json({ success: false, message: 'No paid ticket found for this reference.' });
     return;
   }
 
+  if (!canAccessPaymentReference(principal, payment.userId ?? null)) {
+    response.status(403).json({ success: false, message: 'You are not authorized to download this ticket.' });
+    return;
+  }
+
   const reservation = await prisma.paymentReservation.findUnique({
     where: { paymentReference: reference },
     select: {
+      id: true,
       fullName: true,
       email: true,
       ticketType: true,
       quantity: true,
       seatDetails: true,
+      tickets: {
+        select: {
+          id: true,
+          pdfStoragePath: true,
+          pdfChecksum: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      },
     },
   });
   if (!reservation) {
@@ -1579,6 +2630,50 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
     ? reservation.seatDetails.filter((item): item is string => typeof item === 'string')
     : [];
 
+  const primaryTicket = reservation.tickets[0] ?? null;
+  const resolvedStoragePath = primaryTicket?.pdfStoragePath || buildTicketPdfStoragePath(reference);
+
+  const storedPdf = await downloadTicketPdfFromStorage(resolvedStoragePath);
+  if (storedPdf) {
+    const storedChecksum = computeSha256Hex(storedPdf);
+    const checksumMismatch = Boolean(primaryTicket?.pdfChecksum && primaryTicket.pdfChecksum !== storedChecksum);
+
+    if (!checksumMismatch) {
+      if (primaryTicket && (!primaryTicket.pdfStoragePath || !primaryTicket.pdfChecksum)) {
+        await prisma.ticket.updateMany({
+          where: { reservationId: reservation.id },
+          data: {
+            pdfStoragePath: resolvedStoragePath,
+            pdfChecksum: storedChecksum,
+            pdfGeneratedAt: new Date(),
+          },
+        });
+      }
+
+      response.setHeader('Content-Type', 'application/pdf');
+      response.setHeader('Content-Disposition', `attachment; filename="katina-ticket-${reference}.pdf"`);
+      response.send(Buffer.from(storedPdf));
+      return;
+    }
+
+    logEvent('warn', 'ticket.pdf.checksum-mismatch.regenerate', {
+      reference,
+      storagePath: resolvedStoragePath,
+    });
+  }
+
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      reservationId: reservation.id,
+    },
+    orderBy: {
+      createdAt: 'asc',
+    },
+    select: {
+      qrCodeValue: true,
+    },
+  });
+
   let pdfBytes: Uint8Array;
   try {
     pdfBytes = await buildTicketPdfBytes({
@@ -1588,6 +2683,7 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
       ticketType: fromInventoryEnum(reservation.ticketType),
       quantity: reservation.quantity,
       seatDetails,
+      qrCodeValue: ticket?.qrCodeValue ?? signTicketToken(reference),
     });
   } catch (error) {
     response.status(500).json({
@@ -1595,6 +2691,29 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
       message: error instanceof Error ? error.message : 'Unable to build ticket PDF.',
     });
     return;
+  }
+
+  const generatedChecksum = computeSha256Hex(pdfBytes);
+  const uploaded = await uploadTicketPdfToStorage(resolvedStoragePath, pdfBytes);
+
+  if (!uploaded) {
+    logEvent('warn', 'ticket.pdf.upload.failed-fallback', {
+      reference,
+      storagePath: resolvedStoragePath,
+    });
+  }
+
+  if (uploaded && reservation.tickets.length > 0) {
+    await prisma.ticket.updateMany({
+      where: {
+        reservationId: reservation.id,
+      },
+      data: {
+        pdfStoragePath: resolvedStoragePath,
+        pdfChecksum: generatedChecksum,
+        pdfGeneratedAt: new Date(),
+      },
+    });
   }
 
   response.setHeader('Content-Type', 'application/pdf');
@@ -1605,9 +2724,26 @@ app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ referen
 export { app };
 
 if (process.env.NODE_ENV !== 'test') {
+  const startupValidation = validateStartupConfig();
+  for (const warning of startupValidation.warnings) {
+    logEvent('warn', 'startup.config.warning', { code: warning });
+  }
+
+  if (startupValidation.errors.length > 0) {
+    for (const errorCode of startupValidation.errors) {
+      logEvent('error', 'startup.config.error', { code: errorCode });
+    }
+    throw new Error(`Startup configuration validation failed: ${startupValidation.errors.join(', ')}`);
+  }
+
   void ensureTicketInventorySeed();
+  void ensureTicketDomainSeed();
 
   app.listen(port, () => {
-    console.log(`Katina Tickets API listening on http://127.0.0.1:${port}`);
+    logEvent('info', 'server.started', {
+      port,
+      host: '127.0.0.1',
+      dbConfigured: isPrismaAvailable(),
+    });
   });
 }

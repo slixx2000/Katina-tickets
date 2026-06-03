@@ -63,10 +63,10 @@ function readMetadataValue(user: SupabaseSessionUserLike, keys: readonly string[
 
 export function resolveAppRole(user: SupabaseSessionUserLike | null | undefined): AppRole {
   if (!user) {
-    return 'SUPPORT';
+    return 'CUSTOMER';
   }
 
-  return normalizeAppRole(readMetadataValue(user, ['role', 'user_role', 'access_role']), 'SUPPORT');
+  return normalizeAppRole(readMetadataValue(user, ['role', 'user_role', 'access_role']), 'CUSTOMER');
 }
 
 export function resolveMfaEnabled(user: SupabaseSessionUserLike | null | undefined): boolean {
