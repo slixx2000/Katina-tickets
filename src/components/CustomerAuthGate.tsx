@@ -1,12 +1,8 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { SignInButton } from '@clerk/react';
 
-interface CustomerAuthGateProps {
-  onBack: () => void;
-}
-
-export default function CustomerAuthGate({ onBack }: CustomerAuthGateProps) {
+export default function CustomerAuthGate() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#666E54] text-[#F4F4F2] px-6 py-24">
       <motion.div
@@ -15,15 +11,6 @@ export default function CustomerAuthGate({ onBack }: CustomerAuthGateProps) {
         transition={{ duration: 0.45, ease: [0.25, 1, 0.5, 1] }}
         className="w-full max-w-xl border border-[#F4F4F2]/20 bg-[#4E1413] p-8 md:p-10 shadow-2xl"
       >
-        <button
-          type="button"
-          onClick={onBack}
-          className="group mb-8 inline-flex items-center gap-2 text-xs font-label-caps tracking-widest text-[#F4F4F2]/75 hover:text-[#F4F4F2] transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back
-        </button>
-
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 border border-[#F4F4F2]/30 bg-[#F4F4F2]/10 flex items-center justify-center">
             <ShieldCheck className="w-5 h-5 text-[#F4F4F2]" />

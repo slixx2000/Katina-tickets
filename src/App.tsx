@@ -442,8 +442,12 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const appCanvasClass = !isDarkMode && currentScreen === 'admin'
+    ? 'bg-[#b8c58f]'
+    : 'bg-[var(--app-canvas)]';
+
   return (
-    <div className="relative min-h-screen bg-[var(--app-canvas)] text-[var(--app-text)] selection:bg-[var(--app-cta-hover)] selection:text-[var(--app-on-cta)] flex flex-col justify-between overflow-x-hidden transition-all duration-500">
+    <div className={`relative min-h-screen ${appCanvasClass} text-[var(--app-text)] selection:bg-[var(--app-cta-hover)] selection:text-[var(--app-on-cta)] flex flex-col justify-between overflow-x-hidden transition-all duration-500`}>
       
       {/* Absolute Dynamic Header Navigation Portal */}
       <Header 
@@ -492,27 +496,16 @@ export default function App() {
             )}
 
             {currentScreen === 'customer-auth' && (
-              <CustomerAuthGate
-                onBack={handleBackNavigation}
-              />
+              <CustomerAuthGate />
             )}
 
             {currentScreen === 'my-tickets' && (
-              <MyTickets
-                onBack={handleBackNavigation}
-                currentUser={currentUser}
-                onSignOut={async () => {
-                  await clearServerSession();
-                  setCurrentUser(null);
-                  setCurrentScreen('landing');
-                }}
-              />
+              <MyTickets />
             )}
 
             {currentScreen === 'registration' && (
               <GuestRegistration 
                 selectedPackage={activeSelectedPackage} 
-                onBack={handleBackNavigation} 
                 onSubmit={handleRegistrationSubmit} 
               />
             )}
@@ -521,7 +514,6 @@ export default function App() {
               <SecureCheckout 
                 registrationData={registrationData} 
                 selectedPackage={activeSelectedPackage} 
-                onBack={handleBackNavigation} 
                 onSubmit={handleCheckoutSubmit} 
               />
             )}

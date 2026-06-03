@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Download, Settings, Users, ArrowRight, Camera, 
-  Scan, Check, Play, UserCheck, ShieldAlert, Award, TrendingUp, X, RefreshCw
+  Scan, Check, Play, UserCheck, ShieldAlert, Award, TrendingUp, X, RefreshCw, Menu, Shield
 } from 'lucide-react';
 import { AdminStats, Transaction, TicketPackage, RegistrationData } from '../types';
 import MfaSettingsPanel from './MfaSettingsPanel';
@@ -82,6 +82,8 @@ type SearchItem = {
 
 export default function AdminDashboard({ stats, packages, currentUser, onBackToMain, onUpdateInventory, onSignOut, onSessionRefresh }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'7D' | '30D' | 'YTD'>('30D');
+  const [activeSection, setActiveSection] = useState<'overview' | 'scanner' | 'operations' | 'security'>('overview');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showGuestList, setShowGuestList] = useState(false);
   const [showInventoryCustomizer, setShowInventoryCustomizer] = useState(false);
   const [showStaffAssignments, setShowStaffAssignments] = useState(false);
@@ -295,7 +297,33 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
     .filter(t => t.status === 'completed')
     .reduce((sum, current) => sum + current.amount, stats.totalRevenue);
 
+  const sectionItems = [
+    { id: 'overview', label: 'Overview', icon: BarChart },
+    { id: 'scanner', label: 'Scanner', icon: Scan },
+    { id: 'operations', label: 'Operations', icon: Settings },
+    { id: 'security', label: 'Security', icon: Shield },
+  ] as const;
+
+  const activeSectionLabel =
+    activeSection === 'overview'
+      ? 'Overview'
+      : activeSection === 'scanner'
+        ? 'Scanner'
+        : activeSection === 'operations'
+          ? 'Operations'
+          : 'Security';
+
+  const activeSectionDescription =
+    activeSection === 'overview'
+      ? 'Analytics and booking performance only.'
+      : activeSection === 'scanner'
+        ? 'Validation, check-in, metrics, and scan activity.'
+        : activeSection === 'operations'
+          ? 'Guest registry, inventory controls, and staff assignments.'
+          : 'MFA and admin security controls.';
+
   return (
+    <div className="min-h-screen bg-[#b8c58f] dark:bg-transparent">
     <div className="relative z-10 pt-32 pb-32 md:pb-24 px-6 md:px-20 max-w-7xl mx-auto w-full text-[#F4F4F2] font-sans min-h-screen">
       
       {/* Background radial soft light blur */}
@@ -310,6 +338,14 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
           </h2>
         </div>
         <div className="flex gap-4 font-sans text-xs">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            className="lg:hidden px-4 py-3 border border-[#F4F4F2]/30 hover:border-[#F4F4F2] hover:bg-[#F4F4F2]/10 bg-transparent rounded-none tracking-widest font-label-caps cursor-pointer transition-all duration-300 font-bold inline-flex items-center gap-2"
+          >
+            <Menu className="w-4 h-4" />
+            MENU
+          </button>
           <button 
             type="button"
             onClick={() => alert(`Dynamic analytics stats for ${activeTab} exported successfully as CSV.`)}
@@ -334,9 +370,106 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
         </div>
       </div>
 
-      <MfaSettingsPanel currentUser={currentUser} onSessionRefresh={onSessionRefresh} />
+      <AnimatePresence>
+        {isSidebarOpen ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 z-40 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <motion.aside
+              initial={{ x: -24, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -24, opacity: 0 }}
+              className="h-full w-[78vw] max-w-xs bg-[#4E1413] border-r border-[#F4F4F2]/20 p-5"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-label-caps text-[10px] text-[#F4F4F2]/70 tracking-widest uppercase font-bold">Dashboard Sections</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-1 border border-[#F4F4F2]/30 hover:border-[#F4F4F2]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                {sectionItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeSection === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveSection(item.id);
+                        setIsSidebarOpen(false);
+                      }}
+                      className={`inline-flex items-center gap-2 px-3 py-2 border text-xs font-label-caps tracking-widest uppercase transition-colors cursor-pointer ${
+                        isActive
+                          ? 'border-[#F4F4F2] bg-[#F4F4F2]/15 text-[#F4F4F2]'
+                          : 'border-[#F4F4F2]/30 text-[#F4F4F2]/75 hover:border-[#F4F4F2]/60'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 mb-8">
+        <aside className="hidden lg:block lg:col-span-1 bg-[#4E1413] border border-[#F4F4F2]/20 p-4 md:p-6 h-fit sticky top-28">
+          <h3 className="font-label-caps text-[10px] text-[#F4F4F2]/70 tracking-widest uppercase font-bold mb-4">Dashboard Sections</h3>
+          <div className="flex flex-col gap-2">
+            {sectionItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeSection === item.id;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveSection(item.id)}
+                  className={`inline-flex items-center gap-2 px-3 py-2 border text-xs font-label-caps tracking-widest uppercase transition-colors cursor-pointer ${
+                    isActive
+                      ? 'border-[#F4F4F2] bg-[#F4F4F2]/15 text-[#F4F4F2]'
+                      : 'border-[#F4F4F2]/30 text-[#F4F4F2]/75 hover:border-[#F4F4F2]/60'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-4 text-[10px] text-[#F4F4F2]/55 font-sans leading-relaxed">{activeSectionDescription}</p>
+        </aside>
+
+        <div className="lg:col-span-4 border border-[#F4F4F2]/15 bg-[#4E1413]/35 px-4 py-3">
+          <p className="font-label-caps text-[10px] tracking-widest uppercase text-[#F4F4F2]/65 font-bold">
+            Active Panel: {activeSectionLabel}
+          </p>
+        </div>
+      </div>
+
+      {activeSection === 'security' ? (
+        <div className="mb-12 border border-[#F4F4F2]/15 bg-[#4E1413]/35 p-4 md:p-6">
+          <h3 className="font-label-caps text-[10px] tracking-widest uppercase text-[#F4F4F2]/70 font-bold mb-3">Security Controls</h3>
+          <MfaSettingsPanel currentUser={currentUser} onSessionRefresh={onSessionRefresh} />
+        </div>
+      ) : null}
 
       {/* THREE Core KPI Widgets Grid Row */}
+      {activeSection === 'overview' ? (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 relative z-10 font-sans">
         
         {/* KPI 1: TICKETS SOLD */}
@@ -393,12 +526,14 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
         </div>
 
       </div>
+      ) : null}
 
       {/* MAIN TWO-COLUMN DASHBOARD CONTENT GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
         
         {/* Left Side (span 8): Chart & Acquisitions list */}
-        <div className="lg:col-span-8 flex flex-col gap-10">
+        {activeSection === 'overview' ? (
+        <div className="lg:col-span-12 flex flex-col gap-10">
           
           {/* Custom Animated SVG/CSS Bar Chart representation of ticket allocations rates */}
           <div className="bg-[#4E1413] border border-[#6A6A57]/30 p-8 min-h-[420px] rounded-none flex flex-col relative overflow-hidden text-[#F4F4F2] shadow-md shadow-[#4E1413]/25">
@@ -513,11 +648,14 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
           </div>
 
         </div>
+        ) : null}
 
         {/* Right Side (span 4): Scanner simulator and controllers */}
-        <div className="lg:col-span-4 flex flex-col gap-8">
+        {activeSection === 'scanner' || activeSection === 'operations' ? (
+        <div className="lg:col-span-12 xl:col-span-8 flex flex-col gap-8">
           
           {/* QR Entry Scanner Simulation Module layout */}
+          {activeSection === 'scanner' ? (
           <div className="bg-[#4E1413] border border-[#6A6A57]/45 p-2.5 flex flex-col rounded-none group select-none text-[#F4F4F2] shadow-md shadow-[#4E1413]/25">
             
             {/* Viewfinder background */}
@@ -622,8 +760,10 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
             </div>
  
           </div>
+          ) : null}
 
           {/* Quick Management Panel actions buttons list */}
+          {activeSection === 'operations' ? (
           <div className="bg-[#4E1413] border border-[#6A6A57]/30 p-8 flex flex-col gap-4 text-[#F4F4F2] shadow-md shadow-[#4E1413]/25">
             <h3 className="font-label-caps text-[11px] text-[#F4F4F2]/70 mb-2 tracking-widest font-bold">
               PORTAL CONFIGURATION ACTIONS
@@ -674,7 +814,9 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
               <ArrowRight className="w-4 h-4 text-[#F4F4F2]/60 group-hover:text-white transition-colors shrink-0" />
             </button>
           </div>
+          ) : null}
 
+          {activeSection === 'scanner' ? (
           <div className="bg-[#4E1413] border border-[#6A6A57]/30 p-6 flex flex-col gap-4 text-[#F4F4F2] shadow-md shadow-[#4E1413]/25">
             <div className="flex items-center justify-between">
               <h3 className="font-label-caps text-[10px] tracking-widest text-[#F4F4F2]/75 font-bold uppercase">Scanner Metrics</h3>
@@ -781,8 +923,16 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
               </div>
             </div>
           </div>
+          ) : null}
+
+          {activeSection === 'operations' ? (
+            <div className="border border-[#F4F4F2]/20 bg-[#4E1413]/45 p-6 text-xs text-[#F4F4F2]/75">
+              Select one of the operations modules above to expand the detailed panel below.
+            </div>
+          ) : null}
 
         </div>
+        ) : null}
 
       </div>
 
@@ -790,7 +940,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
       <AnimatePresence>
         
         {/* Guest List Overlay drawer */}
-        {showGuestList && (
+        {activeSection === 'operations' && showGuestList && (
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -830,7 +980,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
         )}
 
         {/* Adjust prices settings list drawer */}
-        {showInventoryCustomizer && (
+        {activeSection === 'operations' && showInventoryCustomizer && (
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -910,7 +1060,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
         )}
 
         {/* Staff Logistics assignment drawer */}
-        {showStaffAssignments && (
+        {activeSection === 'operations' && showStaffAssignments && (
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -946,6 +1096,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
 
       </AnimatePresence>
 
+    </div>
     </div>
   );
 }

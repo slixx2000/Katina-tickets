@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Lock, CreditCard, Wallet, Smartphone, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Lock, CreditCard, Wallet, Smartphone, ShieldCheck } from 'lucide-react';
 import { TicketPackage, RegistrationData, PaymentData } from '../types';
 import { processLencoPayment } from '../lib/lenco';
 
 interface SecureCheckoutProps {
   registrationData: RegistrationData;
   selectedPackage: TicketPackage;
-  onBack: () => void;
   onSubmit: (data: PaymentData) => void;
 }
 
-export default function SecureCheckout({ registrationData, selectedPackage, onBack, onSubmit }: SecureCheckoutProps) {
+export default function SecureCheckout({ registrationData, selectedPackage, onSubmit }: SecureCheckoutProps) {
   const [method, setMethod] = useState<'card' | 'applepay' | 'mobilemoney'>('card');
   const [cardNumber, setCardNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
@@ -116,17 +115,6 @@ export default function SecureCheckout({ registrationData, selectedPackage, onBa
 
   return (
     <div className="secure-checkout min-h-screen relative pt-32 pb-20 px-6 md:px-20 max-w-7xl mx-auto w-full bg-[#666E54] text-[color:var(--checkout-text)]">
-      {/* Absolute Back Route Action */}
-      <div className="absolute top-8 left-6 md:left-12 z-50">
-        <button
-          onClick={onBack}
-          className="group flex items-center gap-2 text-[color:var(--checkout-text)] hover:text-[color:var(--checkout-text-muted)] transition-colors cursor-pointer py-1"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="font-label-caps text-xs">Return</span>
-        </button>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-start mt-4">
         
         {/* LEFT COLUMN: Order Summary Card (Maroon Page theme) */}

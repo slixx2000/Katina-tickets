@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Download, Ticket, Calendar, MapPin, Loader2, RefreshCw, LogOut } from 'lucide-react';
-import type { AppSessionUser } from '../auth/session';
+import { Download, Ticket, Calendar, MapPin, Loader2, RefreshCw } from 'lucide-react';
 
 type TicketRecord = {
   paymentReference: string;
@@ -18,13 +17,7 @@ type TicketRecord = {
   };
 };
 
-interface MyTicketsProps {
-  onBack: () => void;
-  currentUser: AppSessionUser | null;
-  onSignOut: () => Promise<void>;
-}
-
-export default function MyTickets({ onBack, currentUser, onSignOut }: MyTicketsProps) {
+export default function MyTickets() {
   const [items, setItems] = useState<TicketRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,15 +107,6 @@ export default function MyTickets({ onBack, currentUser, onSignOut }: MyTicketsP
   return (
     <div className="min-h-screen bg-[#666E54] text-[#F4F4F2] pt-32 pb-24 px-6 md:px-20">
       <div className="max-w-5xl mx-auto">
-        <button
-          type="button"
-          onClick={onBack}
-          className="group mb-8 inline-flex items-center gap-2 text-xs font-label-caps tracking-widest text-[#F4F4F2]/75 hover:text-[#F4F4F2] transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back
-        </button>
-
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
           <div>
             <p className="font-label-caps text-[10px] tracking-[0.28em] text-[#F4F4F2]/65 uppercase mb-2">Customer Portal</p>
@@ -135,22 +119,6 @@ export default function MyTickets({ onBack, currentUser, onSignOut }: MyTicketsP
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Refresh
-          </button>
-        </div>
-
-        <div className="border border-[#F4F4F2]/20 bg-[#4E1413]/65 p-5 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <p className="font-label-caps text-[10px] tracking-[0.2em] uppercase text-[#F4F4F2]/60 mb-2">Session</p>
-            <p className="text-sm font-sans text-[#F4F4F2] font-semibold">{currentUser?.email ?? 'Unknown account'}</p>
-            <p className="text-xs font-sans text-[#F4F4F2]/70 mt-1">Role: {currentUser?.role ?? 'CUSTOMER'} • Status: Active</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void onSignOut()}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-[#F4F4F2]/35 hover:border-[#F4F4F2] text-xs font-label-caps tracking-widest uppercase transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Sign Out
           </button>
         </div>
 

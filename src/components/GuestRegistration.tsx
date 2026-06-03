@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Minus, Plus, Calendar, MapPin, Gift, Lock } from 'lucide-react';
+import { ArrowRight, Minus, Plus, Calendar, MapPin, Gift, Lock } from 'lucide-react';
 import { TicketPackage, RegistrationData } from '../types';
 
 interface GuestRegistrationProps {
   selectedPackage: TicketPackage;
-  onBack: () => void;
   onSubmit: (data: RegistrationData) => void;
 }
 
-export default function GuestRegistration({ selectedPackage, onBack, onSubmit }: GuestRegistrationProps) {
+export default function GuestRegistration({ selectedPackage, onSubmit }: GuestRegistrationProps) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -54,17 +53,6 @@ export default function GuestRegistration({ selectedPackage, onBack, onSubmit }:
 
   return (
     <div className="guest-registration min-h-screen flex flex-col lg:flex-row w-full bg-[#666E54] text-[color:var(--guest-text)]">
-      {/* Absolute Back Button floating over top left */}
-      <div className="absolute top-8 left-6 md:left-12 z-50">
-        <button
-          onClick={onBack}
-          className="group flex items-center gap-2 text-[color:var(--guest-text)] hover:text-[color:var(--guest-text-muted)] transition-colors cursor-pointer py-1"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="font-label-caps text-xs">Return</span>
-        </button>
-      </div>
-
       {/* LEFT SIDE: Cinematic Event Details Panel */}
       <section className="relative w-full lg:w-1/2 h-[450px] lg:h-screen flex-shrink-0 bg-[#666E54] overflow-hidden group text-[color:var(--guest-text)]">
         {/* Dark Background Scale Image */}
