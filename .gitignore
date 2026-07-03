@@ -11,3 +11,6 @@ coverage/
 plan.md
 scripts/katina-seed-payment.cjs
 scripts/practical-check.ps1
+
+.vercel
+.env*

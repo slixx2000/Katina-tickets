@@ -21,6 +21,8 @@ export default function GuestRegistration({ selectedPackage, onSubmit }: GuestRe
   // Form error states
   const [errors, setErrors] = useState<{ fullName?: string; email?: string }>({});
 
+  const sanitizeText = (value: string) => value.replace(/[<>]/g, '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
+
   const handlePlus = () => {
     if (quantity < 6) setQuantity(prev => prev + 1);
   };
@@ -32,10 +34,14 @@ export default function GuestRegistration({ selectedPackage, onSubmit }: GuestRe
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
 
+    const normalizedName = sanitizeText(fullName);
+    const normalizedEmail = sanitizeText(email).toLowerCase();
+    const normalizedPhone = sanitizeText(phone);
+
     // Minor validation checks
     const newErrors: { fullName?: string; email?: string } = {};
-    if (!fullName.trim()) newErrors.fullName = 'Full Legal Name is required';
-    if (!email.trim() || !email.includes('@')) newErrors.email = 'Valid Email Address is required';
+    if (!/^[a-zA-Z\s'.-]{2,80}$/.test(normalizedName)) newErrors.fullName = 'Enter a valid full name (letters, spaces, apostrophe, period, hyphen).';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) newErrors.email = 'Valid Email Address is required';
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -43,9 +49,9 @@ export default function GuestRegistration({ selectedPackage, onSubmit }: GuestRe
     }
 
     onSubmit({
-      fullName,
-      email,
-      phone,
+      fullName: normalizedName,
+      email: normalizedEmail,
+      phone: normalizedPhone,
       quantity,
       ticketType: selectedPackage.id
     });

@@ -1,10 +1,12 @@
 import crypto from 'crypto';
 import 'dotenv/config';
 import express, {type Request, type Response} from 'express';
+import type { PaymentStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
 import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies.js';
 import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index.js';
 import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit.js';
@@ -259,6 +261,34 @@ const webhookRateLimiter = createInMemoryRateLimiter({ limit: 120, windowMs: 60_
 const ticketReadRateLimiter = createInMemoryRateLimiter({ limit: 60, windowMs: 60_000 });
 const inMemoryWebhookEvents = new Set<string>();
 
+function sanitizeString(value: string) {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[<>]/g, '')
+    .trim();
+}
+
+function sanitizeUnknown(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return sanitizeString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeUnknown(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const input = value as Record<string, unknown>;
+    const output: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(input)) {
+      output[key] = sanitizeUnknown(nestedValue);
+    }
+    return output;
+  }
+
+  return value;
+}
+
 app.use(
   express.json({
     limit: '1mb',
@@ -267,6 +297,61 @@ app.use(
     },
   }),
 );
+
+app.use((request, response, next) => {
+  const forwardedProto = String(request.headers['x-forwarded-proto'] || '').toLowerCase();
+  const secure = request.secure || forwardedProto === 'https';
+
+  if (isProductionRuntime() && !secure) {
+    const host = request.headers.host;
+    if (host) {
+      response.redirect(301, `https://${host}${request.originalUrl}`);
+      return;
+    }
+  }
+
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://pay.lenco.co https://pay.sandbox.lenco.co",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://api.lenco.co https://sandbox.lenco.co https://*.supabase.co",
+    "font-src 'self' data:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ');
+
+  response.setHeader('Content-Security-Policy', csp);
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  if (isProductionRuntime()) {
+    response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+
+  next();
+});
+
+app.use((request, _response, next) => {
+  request.body = sanitizeUnknown(request.body);
+  request.query = sanitizeUnknown(request.query) as Request['query'];
+  next();
+});
+
+app.use((request, response, next) => {
+  const contentType = String(request.headers['content-type'] || '').toLowerCase();
+  if (contentType.includes('multipart/form-data')) {
+    response.status(415).json({
+      success: false,
+      message: 'File uploads are not supported by this API.',
+    });
+    return;
+  }
+
+  next();
+});
 
 app.use((request, response, next) => {
   const requestStart = process.hrtime.bigint();
@@ -742,12 +827,39 @@ async function buildTicketPdfBytes(input: {
     lineHeight: 10,
   });
 
+  const qrDataUrl = await QRCode.toDataURL(input.qrCodeValue, {
+    margin: 1,
+    width: 220,
+    errorCorrectionLevel: 'M',
+  });
+  const qrPngBytes = Buffer.from(qrDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
+  const qrImage = await document.embedPng(qrPngBytes);
+  page.drawImage(qrImage, {
+    x: 56,
+    y: 180,
+    width: 180,
+    height: 180,
+  });
+
+  page.drawText('Present this QR at entry for scanning.', {
+    x: 56,
+    y: 160,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.25, 0.25, 0.25),
+  });
+
   return await document.save();
 }
 
-function buildTicketPdfStoragePath(reference: string) {
+function buildTicketPdfStoragePath(reference: string, ticketId?: string) {
   const normalizedReference = reference.replace(/[^A-Za-z0-9_-]/g, '-');
-  return `${DEFAULT_EVENT_YEAR}/${normalizedReference}.pdf`;
+  if (!ticketId) {
+    return `${DEFAULT_EVENT_YEAR}/${normalizedReference}.pdf`;
+  }
+
+  const normalizedTicketId = ticketId.replace(/[^A-Za-z0-9_-]/g, '-');
+  return `${DEFAULT_EVENT_YEAR}/${normalizedReference}-${normalizedTicketId}.pdf`;
 }
 
 function computeSha256Hex(value: Uint8Array) {
@@ -813,6 +925,215 @@ async function uploadTicketPdfToStorage(storagePath: string, bytes: Uint8Array) 
   });
 
   return !result.error;
+}
+
+const MAX_TICKET_PDF_UPLOAD_RETRIES = 5;
+const TICKET_PDF_RETRY_INTERVAL_MS = 5 * 60 * 1000;
+
+function resolveInternalRetryToken() {
+  return (process.env.PDF_UPLOAD_RETRY_TOKEN || '').trim();
+}
+
+function isInternalRetryAuthorized(request: Request) {
+  const expected = resolveInternalRetryToken();
+  if (!expected) {
+    return false;
+  }
+
+  const authorization = request.header('authorization') || '';
+  const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : '';
+  return bearerToken.length > 0 && bearerToken === expected;
+}
+
+async function enqueueFailedPdfUpload(input: {
+  paymentReference: string;
+  ticketRecordId: string;
+  ticketPublicId: string;
+  storagePath: string;
+  errorMessage: string;
+}) {
+  if (!isPrismaAvailable()) {
+    return;
+  }
+
+  const nextAttemptAt = new Date(Date.now() + TICKET_PDF_RETRY_INTERVAL_MS);
+
+  await prisma.failedPdfUpload.upsert({
+    where: {
+      ticketRecordId: input.ticketRecordId,
+    },
+    create: {
+      paymentReference: input.paymentReference,
+      ticketRecordId: input.ticketRecordId,
+      ticketPublicId: input.ticketPublicId,
+      storagePath: input.storagePath,
+      status: 'PENDING',
+      attemptCount: 0,
+      lastError: input.errorMessage,
+      nextAttemptAt,
+    },
+    update: {
+      paymentReference: input.paymentReference,
+      ticketPublicId: input.ticketPublicId,
+      storagePath: input.storagePath,
+      status: 'PENDING',
+      lastError: input.errorMessage,
+      nextAttemptAt,
+    },
+  });
+}
+
+async function processPendingPdfUploadRetry(row: {
+  id: string;
+  paymentReference: string;
+  ticketRecordId: string;
+  ticketPublicId: string;
+  storagePath: string;
+  attemptCount: number;
+}) {
+  const now = new Date();
+  const nextAttemptCount = row.attemptCount + 1;
+
+  const reservation = await prisma.paymentReservation.findUnique({
+    where: { paymentReference: row.paymentReference },
+    select: {
+      fullName: true,
+      email: true,
+      ticketType: true,
+      quantity: true,
+      seatDetails: true,
+    },
+  });
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: row.ticketRecordId },
+    select: {
+      id: true,
+      ticketId: true,
+      qrCodeValue: true,
+    },
+  });
+
+  if (!reservation || !ticket) {
+    await prisma.failedPdfUpload.update({
+      where: { id: row.id },
+      data: {
+        status: 'EXHAUSTED',
+        attemptCount: nextAttemptCount,
+        lastAttemptAt: now,
+        nextAttemptAt: now,
+        lastError: !reservation
+          ? 'Reservation not found while retrying PDF upload.'
+          : 'Ticket not found while retrying PDF upload.',
+      },
+    });
+
+    logEvent('error', 'ticket.pdf.upload.retry.exhausted', {
+      reference: row.paymentReference,
+      ticketId: row.ticketPublicId,
+      storagePath: row.storagePath,
+      attempts: nextAttemptCount,
+      actionRequired: true,
+      reason: 'MISSING_DATA',
+    });
+    return { status: 'exhausted' as const };
+  }
+
+  const seatDetails = Array.isArray(reservation.seatDetails)
+    ? reservation.seatDetails.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  try {
+    const pdfBytes = await buildTicketPdfBytes({
+      reference: row.paymentReference,
+      fullName: reservation.fullName,
+      email: reservation.email,
+      ticketType: fromInventoryEnum(reservation.ticketType),
+      quantity: reservation.quantity,
+      seatDetails,
+      qrCodeValue: ticket.qrCodeValue || signTicketToken(row.paymentReference),
+    });
+
+    const uploaded = await uploadTicketPdfToStorage(row.storagePath, pdfBytes);
+    if (uploaded) {
+      await prisma.$transaction([
+        prisma.ticket.update({
+          where: { id: ticket.id },
+          data: {
+            pdfStoragePath: row.storagePath,
+            pdfChecksum: computeSha256Hex(pdfBytes),
+            pdfGeneratedAt: now,
+          },
+        }),
+        prisma.failedPdfUpload.update({
+          where: { id: row.id },
+          data: {
+            status: 'SUCCEEDED',
+            attemptCount: nextAttemptCount,
+            lastAttemptAt: now,
+            nextAttemptAt: now,
+            lastError: null,
+          },
+        }),
+      ]);
+
+      logEvent('info', 'ticket.pdf.upload.retry.succeeded', {
+        reference: row.paymentReference,
+        ticketId: row.ticketPublicId,
+        storagePath: row.storagePath,
+        attempt: nextAttemptCount,
+      });
+      return { status: 'succeeded' as const };
+    }
+
+    const exhausted = nextAttemptCount >= MAX_TICKET_PDF_UPLOAD_RETRIES;
+    const nextAttemptAt = exhausted ? now : new Date(Date.now() + TICKET_PDF_RETRY_INTERVAL_MS * nextAttemptCount);
+    await prisma.failedPdfUpload.update({
+      where: { id: row.id },
+      data: {
+        status: exhausted ? 'EXHAUSTED' : 'PENDING',
+        attemptCount: nextAttemptCount,
+        lastAttemptAt: now,
+        nextAttemptAt,
+        lastError: 'Storage upload failed during retry run.',
+      },
+    });
+
+    logEvent('error', exhausted ? 'ticket.pdf.upload.retry.exhausted' : 'ticket.pdf.upload.retry.failed', {
+      reference: row.paymentReference,
+      ticketId: row.ticketPublicId,
+      storagePath: row.storagePath,
+      attempt: nextAttemptCount,
+      actionRequired: true,
+    });
+
+    return { status: exhausted ? 'exhausted' as const : 'failed' as const };
+  } catch (error) {
+    const exhausted = nextAttemptCount >= MAX_TICKET_PDF_UPLOAD_RETRIES;
+    const nextAttemptAt = exhausted ? now : new Date(Date.now() + TICKET_PDF_RETRY_INTERVAL_MS * nextAttemptCount);
+    await prisma.failedPdfUpload.update({
+      where: { id: row.id },
+      data: {
+        status: exhausted ? 'EXHAUSTED' : 'PENDING',
+        attemptCount: nextAttemptCount,
+        lastAttemptAt: now,
+        nextAttemptAt,
+        lastError: error instanceof Error ? error.message : String(error),
+      },
+    });
+
+    logEvent('error', exhausted ? 'ticket.pdf.upload.retry.exhausted' : 'ticket.pdf.upload.retry.failed', {
+      reference: row.paymentReference,
+      ticketId: row.ticketPublicId,
+      storagePath: row.storagePath,
+      attempt: nextAttemptCount,
+      actionRequired: true,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return { status: exhausted ? 'exhausted' as const : 'failed' as const };
+  }
 }
 
 async function ensureDefaultEvent() {
@@ -1127,6 +1448,8 @@ async function finalizeReservationForPaidPayment(reference: string) {
         holderEmail: reservation.email,
         quantity: reservation.quantity,
       });
+    }, {
+      isolationLevel: 'Serializable',
     });
     return true;
   } catch {
@@ -1246,6 +1569,45 @@ function mapLencoStatusToPaymentStatus(status: string | undefined) {
   }
 
   return 'PENDING' as const;
+}
+
+async function applyPaymentStatusAndFinalize(input: {
+  reference: string;
+  providerPaymentId?: string;
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';
+}) {
+  const transactionUpdated = await updatePaymentIntentFromWebhook({
+    reference: input.reference,
+    providerPaymentId: input.providerPaymentId,
+    status: input.status,
+  });
+
+  if (input.status !== 'PAID') {
+    if (input.status === 'FAILED' || input.status === 'CANCELLED' || input.status === 'REFUNDED') {
+      logEvent('warn', 'payment.status.nonpaid', {
+        reference: input.reference,
+        status: input.status,
+        transactionUpdated,
+      });
+    }
+
+    return {
+      transactionUpdated,
+      reservationFinalized: false,
+      ticketDeliveryReady: false,
+    };
+  }
+
+  const reservationFinalized = await finalizeReservationForPaidPayment(input.reference);
+  const ticketDeliveryReady = reservationFinalized
+    ? await queueTicketDeliveryAfterPersistence(input.reference)
+    : false;
+
+  return {
+    transactionUpdated,
+    reservationFinalized,
+    ticketDeliveryReady,
+  };
 }
 
 async function persistWebhookDelivery(input: {
@@ -1584,7 +1946,7 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
   }
 });
 
-app.post('/api/session-auth/logout', authRateLimiter, async (request: Request, response: Response) => {
+app.post('/api/session-auth/logout', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const token = getAuthCookieValue(request, sessionCookieName);
   if (token) {
     const session = await sessionStore.getSessionByAccessToken(token);
@@ -1952,6 +2314,175 @@ const requireAuthenticatedSession = async (request: Request): Promise<AuthPrinci
 
 const PAYMENT_ADMIN_ROLES: readonly AppRole[] = ['SUPER_ADMIN', 'FINANCE', 'SUPPORT'];
 
+function buildUserInitials(fullName: string) {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0)
+    .slice(0, 2);
+
+  if (parts.length === 0) {
+    return 'GT';
+  }
+
+  return parts.map((part) => part[0]?.toUpperCase() ?? '').join('') || 'GT';
+}
+
+function mapDashboardStatus(status: PaymentStatus) {
+  if (status === 'PAID') {
+    return 'completed' as const;
+  }
+
+  if (status === 'PENDING') {
+    return 'pending' as const;
+  }
+
+  return 'failed' as const;
+}
+
+function normalizeSeatDetails(value: Prisma.JsonValue) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+async function buildSalesDashboardData() {
+  if (!isPrismaAvailable()) {
+    return {
+      ticketsSold: 0,
+      ticketsTotal: 0,
+      totalRevenue: 0,
+      remainingInventory: {
+        ordinary: 0,
+        vip: 0,
+      },
+      transactions: [] as Array<{
+        id: string;
+        fullName: string;
+        initials: string;
+        ticketType: 'ordinary' | 'vip';
+        quantity: number;
+        amount: number;
+        timestamp: string;
+        status: 'pending' | 'completed' | 'failed';
+        seatDetails: string[];
+      }>,
+      chartsData: [] as Array<{
+        day: string;
+        count: number;
+        revenue: number;
+      }>,
+    };
+  }
+
+  const [inventoryRows, paidTransactions] = await Promise.all([
+    prisma.ticketInventory.findMany({
+      select: {
+        type: true,
+        totalCap: true,
+        remaining: true,
+      },
+    }),
+    prisma.paymentTransaction.findMany({
+      where: {
+        status: 'PAID',
+      },
+      orderBy: {
+        paidAt: 'desc',
+      },
+      select: {
+        reference: true,
+        amount: true,
+        customerName: true,
+        paidAt: true,
+        createdAt: true,
+        status: true,
+      },
+    }),
+  ]);
+
+  const paidReferences = paidTransactions.map((row) => row.reference);
+  const reservations = paidReferences.length
+    ? await prisma.paymentReservation.findMany({
+        where: {
+          paymentReference: {
+            in: paidReferences,
+          },
+        },
+        select: {
+          paymentReference: true,
+          fullName: true,
+          ticketType: true,
+          quantity: true,
+          seatDetails: true,
+        },
+      })
+    : [];
+
+  const reservationByReference = new Map(reservations.map((row) => [row.paymentReference, row]));
+
+  const transactions = paidTransactions.map((row) => {
+    const reservation = reservationByReference.get(row.reference);
+    const fullName = reservation?.fullName || row.customerName || 'Guest';
+    const timestamp = (row.paidAt || row.createdAt).toISOString();
+
+    return {
+      id: row.reference,
+      fullName,
+      initials: buildUserInitials(fullName),
+      ticketType: reservation ? fromInventoryEnum(reservation.ticketType) : 'ordinary',
+      quantity: reservation?.quantity ?? 1,
+      amount: row.amount,
+      timestamp,
+      status: mapDashboardStatus(row.status),
+      seatDetails: reservation ? normalizeSeatDetails(reservation.seatDetails as Prisma.JsonValue) : [],
+    };
+  });
+
+  const today = new Date();
+  const chartsData = Array.from({ length: 7 }, (_unused, index) => {
+    const pointDate = new Date(today);
+    pointDate.setHours(0, 0, 0, 0);
+    pointDate.setDate(today.getDate() - (6 - index));
+
+    const nextDay = new Date(pointDate);
+    nextDay.setDate(pointDate.getDate() + 1);
+
+    const dayTransactions = paidTransactions.filter((row) => {
+      const timestamp = row.paidAt || row.createdAt;
+      return timestamp >= pointDate && timestamp < nextDay;
+    });
+
+    return {
+      day: pointDate.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
+      count: dayTransactions.length,
+      revenue: dayTransactions.reduce((sum, row) => sum + row.amount, 0),
+    };
+  });
+
+  const remainingInventory = {
+    ordinary: 0,
+    vip: 0,
+  };
+  let ticketsTotal = 0;
+  for (const row of inventoryRows) {
+    const type = fromInventoryEnum(row.type);
+    remainingInventory[type] = row.remaining;
+    ticketsTotal += row.totalCap;
+  }
+
+  return {
+    ticketsSold: transactions.reduce((sum, row) => sum + row.quantity, 0),
+    ticketsTotal,
+    totalRevenue: paidTransactions.reduce((sum, row) => sum + row.amount, 0),
+    remainingInventory,
+    transactions,
+    chartsData,
+  };
+}
+
 function canAccessPaymentReference(principal: AuthPrincipal, paymentUserId: string | null) {
   if (PAYMENT_ADMIN_ROLES.includes(principal.role)) {
     return true;
@@ -1976,7 +2507,14 @@ app.get('/api/admin/overview', async (request: Request, response: Response) => {
     return;
   }
 
-  response.json({ success: true, section: 'admin', user: principal });
+  const stats = await buildSalesDashboardData();
+
+  response.json({
+    success: true,
+    section: 'admin',
+    user: principal,
+    stats,
+  });
 });
 
 app.get('/api/scanner/dashboard', async (request: Request, response: Response) => {
@@ -2154,7 +2692,7 @@ app.get('/api/scanner/search', async (request: Request, response: Response) => {
   });
 });
 
-app.post('/api/scanner/validate', async (request: Request<{}, unknown, ScannerValidateRequest>, response: Response) => {
+app.post('/api/scanner/validate', createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request<{}, unknown, ScannerValidateRequest>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2241,7 +2779,7 @@ app.post('/api/scanner/validate', async (request: Request<{}, unknown, ScannerVa
   });
 });
 
-app.post('/api/scanner/check-in', async (request: Request<{}, unknown, ScannerCheckInRequest>, response: Response) => {
+app.post('/api/scanner/check-in', createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request<{}, unknown, ScannerCheckInRequest>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2389,10 +2927,17 @@ app.get('/api/finance/reports', async (request: Request, response: Response) => 
     return;
   }
 
-  response.json({ success: true, section: 'finance', user: principal });
+  const stats = await buildSalesDashboardData();
+
+  response.json({
+    success: true,
+    section: 'finance',
+    user: principal,
+    stats,
+  });
 });
 
-app.post('/api/organizer/events', async (request: Request, response: Response) => {
+app.post('/api/organizer/events', createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2440,6 +2985,10 @@ app.get('/api/me/tickets', ticketReadRateLimiter, async (request: Request, respo
       createdAt: true,
       tickets: {
         select: {
+          id: true,
+          ticketId: true,
+          qrCodeValue: true,
+          status: true,
           pdfStoragePath: true,
           pdfChecksum: true,
           pdfGeneratedAt: true,
@@ -2480,6 +3029,16 @@ app.get('/api/me/tickets', ticketReadRateLimiter, async (request: Request, respo
         available: row.tickets.some((ticket) => Boolean(ticket.pdfStoragePath && ticket.pdfChecksum)),
         generatedAt: row.tickets.find((ticket) => ticket.pdfGeneratedAt)?.pdfGeneratedAt?.toISOString() ?? null,
       },
+      tickets: row.tickets.map((ticket) => ({
+        id: ticket.id,
+        ticketId: ticket.ticketId,
+        token: ticket.qrCodeValue,
+        status: ticket.status,
+        pdf: {
+          available: Boolean(ticket.pdfStoragePath && ticket.pdfChecksum),
+          generatedAt: ticket.pdfGeneratedAt?.toISOString() ?? null,
+        },
+      })),
     })),
   });
 });
@@ -2619,13 +3178,22 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
 
   try {
     const status = await getLencoCollectionStatus(reference);
+    let transactionUpdated = false;
+    let reservationFinalized = false;
+    let ticketDeliveryReady = false;
+
     if (isPrismaAvailable() && status.status) {
       const mappedStatus = mapLencoStatusToPaymentStatus(status.status);
-      await updatePaymentIntentFromWebhook({
+
+      const finalized = await applyPaymentStatusAndFinalize({
         reference,
         providerPaymentId: status.id,
         status: mappedStatus,
       });
+
+      transactionUpdated = finalized.transactionUpdated;
+      reservationFinalized = finalized.reservationFinalized;
+      ticketDeliveryReady = finalized.ticketDeliveryReady;
     }
 
     response.json({
@@ -2634,6 +3202,9 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
       id: status.id,
       lencoReference: status.lencoReference,
       status: status.status,
+      transactionUpdated,
+      reservationFinalized,
+      ticketDeliveryReady,
     });
   } catch (error) {
     response.status(502).json({
@@ -2683,27 +3254,19 @@ app.post(
       return;
     }
 
-    const updated = await updatePaymentIntentFromWebhook({
+    const finalized = await applyPaymentStatusAndFinalize({
       reference: parsed.reference,
       providerPaymentId: parsed.providerPaymentId,
       status: mapLencoStatusToPaymentStatus(parsed.status),
     });
 
-    const reservationCreated = parsed.status === 'PAID'
-      ? await finalizeReservationForPaidPayment(parsed.reference)
-      : false;
-
-    const ticketDeliveryReady = parsed.status === 'PAID' && reservationCreated
-      ? await queueTicketDeliveryAfterPersistence(parsed.reference)
-      : false;
-
     logEvent('info', 'payment.webhook.processed', {
       eventId: parsed.providerEventId,
       reference: parsed.reference,
       status: parsed.status,
-      transactionUpdated: updated,
-      reservationCreated,
-      ticketDeliveryReady,
+      transactionUpdated: finalized.transactionUpdated,
+      reservationFinalized: finalized.reservationFinalized,
+      ticketDeliveryReady: finalized.ticketDeliveryReady,
     });
 
     response.json({
@@ -2712,9 +3275,9 @@ app.post(
       eventId: parsed.providerEventId,
       reference: parsed.reference,
       status: parsed.status,
-      transactionUpdated: updated,
-      reservationCreated,
-      ticketDeliveryReady,
+      transactionUpdated: finalized.transactionUpdated,
+      reservationCreated: finalized.reservationFinalized,
+      ticketDeliveryReady: finalized.ticketDeliveryReady,
     });
   },
 );
@@ -2848,6 +3411,23 @@ app.get('/api/payments/:reference/ticket-token', ticketReadRateLimiter, async (r
     success: true,
     reference,
     token: ticket.qrCodeValue,
+    tokens: await prisma.ticket.findMany({
+      where: {
+        reservationId: reservation.id,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      select: {
+        id: true,
+        ticketId: true,
+        qrCodeValue: true,
+      },
+    }).then((tickets) => tickets.map((row) => ({
+      id: row.id,
+      ticketId: row.ticketId,
+      token: row.qrCodeValue,
+    }))),
   });
 });
 
@@ -2859,6 +3439,7 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
   }
 
   const { reference } = request.params;
+  const ticketIdParam = typeof request.query.ticketId === 'string' ? request.query.ticketId.trim() : '';
   if (!reference || reference.trim().length < 8) {
     response.status(400).json({ success: false, message: 'Payment reference is required.' });
     return;
@@ -2895,6 +3476,8 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
       tickets: {
         select: {
           id: true,
+          ticketId: true,
+          qrCodeValue: true,
           pdfStoragePath: true,
           pdfChecksum: true,
         },
@@ -2913,18 +3496,26 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
     ? reservation.seatDetails.filter((item): item is string => typeof item === 'string')
     : [];
 
-  const primaryTicket = reservation.tickets[0] ?? null;
-  const resolvedStoragePath = primaryTicket?.pdfStoragePath || buildTicketPdfStoragePath(reference);
+  const selectedTicket = ticketIdParam
+    ? reservation.tickets.find((ticket) => ticket.id === ticketIdParam)
+    : reservation.tickets[0];
+
+  if (!selectedTicket) {
+    response.status(404).json({ success: false, message: 'Ticket not found for this reservation.' });
+    return;
+  }
+
+  const resolvedStoragePath = selectedTicket.pdfStoragePath || buildTicketPdfStoragePath(reference, selectedTicket.ticketId);
 
   const storedPdf = await downloadTicketPdfFromStorage(resolvedStoragePath);
   if (storedPdf) {
     const storedChecksum = computeSha256Hex(storedPdf);
-    const checksumMismatch = Boolean(primaryTicket?.pdfChecksum && primaryTicket.pdfChecksum !== storedChecksum);
+    const checksumMismatch = Boolean(selectedTicket.pdfChecksum && selectedTicket.pdfChecksum !== storedChecksum);
 
     if (!checksumMismatch) {
-      if (primaryTicket && (!primaryTicket.pdfStoragePath || !primaryTicket.pdfChecksum)) {
-        await prisma.ticket.updateMany({
-          where: { reservationId: reservation.id },
+      if (!selectedTicket.pdfStoragePath || !selectedTicket.pdfChecksum) {
+        await prisma.ticket.update({
+          where: { id: selectedTicket.id },
           data: {
             pdfStoragePath: resolvedStoragePath,
             pdfChecksum: storedChecksum,
@@ -2934,7 +3525,7 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
       }
 
       response.setHeader('Content-Type', 'application/pdf');
-      response.setHeader('Content-Disposition', `attachment; filename="katina-ticket-${reference}.pdf"`);
+      response.setHeader('Content-Disposition', `attachment; filename="katina-ticket-${selectedTicket.ticketId}.pdf"`);
       response.send(Buffer.from(storedPdf));
       return;
     }
@@ -2945,18 +3536,6 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
     });
   }
 
-  const ticket = await prisma.ticket.findFirst({
-    where: {
-      reservationId: reservation.id,
-    },
-    orderBy: {
-      createdAt: 'asc',
-    },
-    select: {
-      qrCodeValue: true,
-    },
-  });
-
   let pdfBytes: Uint8Array;
   try {
     pdfBytes = await buildTicketPdfBytes({
@@ -2966,7 +3545,7 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
       ticketType: fromInventoryEnum(reservation.ticketType),
       quantity: reservation.quantity,
       seatDetails,
-      qrCodeValue: ticket?.qrCodeValue ?? signTicketToken(reference),
+      qrCodeValue: selectedTicket.qrCodeValue || signTicketToken(reference),
     });
   } catch (error) {
     response.status(500).json({
@@ -2980,16 +3559,27 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
   const uploaded = await uploadTicketPdfToStorage(resolvedStoragePath, pdfBytes);
 
   if (!uploaded) {
-    logEvent('warn', 'ticket.pdf.upload.failed-fallback', {
+    logEvent('error', 'ticket.pdf.upload.failed-fallback', {
       reference,
+      ticketId: selectedTicket.ticketId,
       storagePath: resolvedStoragePath,
+      actionRequired: true,
+      message: 'PDF was served to client but storage backup failed. Retry has been queued in persistent storage.',
+    });
+
+    await enqueueFailedPdfUpload({
+      paymentReference: reference,
+      ticketRecordId: selectedTicket.id,
+      ticketPublicId: selectedTicket.ticketId,
+      storagePath: resolvedStoragePath,
+      errorMessage: 'Initial storage upload failed while serving ticket PDF.',
     });
   }
 
   if (uploaded && reservation.tickets.length > 0) {
-    await prisma.ticket.updateMany({
+    await prisma.ticket.update({
       where: {
-        reservationId: reservation.id,
+        id: selectedTicket.id,
       },
       data: {
         pdfStoragePath: resolvedStoragePath,
@@ -3000,8 +3590,140 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
   }
 
   response.setHeader('Content-Type', 'application/pdf');
-  response.setHeader('Content-Disposition', `attachment; filename="katina-ticket-${reference}.pdf"`);
+  response.setHeader('Content-Disposition', `attachment; filename="katina-ticket-${selectedTicket.ticketId}.pdf"`);
   response.send(Buffer.from(pdfBytes));
+});
+
+app.get('/api/internal/retry-pdf-uploads', async (request: Request, response: Response) => {
+  if (!isInternalRetryAuthorized(request)) {
+    response.status(401).json({ success: false, message: 'Unauthorized.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'Retry queue requires persistent storage.' });
+    return;
+  }
+
+  const now = new Date();
+  const pending = await prisma.failedPdfUpload.findMany({
+    where: {
+      status: 'PENDING',
+      nextAttemptAt: {
+        lte: now,
+      },
+    },
+    orderBy: {
+      nextAttemptAt: 'asc',
+    },
+    take: 25,
+    select: {
+      id: true,
+      paymentReference: true,
+      ticketRecordId: true,
+      ticketPublicId: true,
+      storagePath: true,
+      attemptCount: true,
+    },
+  });
+
+  let succeeded = 0;
+  let failed = 0;
+  let exhausted = 0;
+
+  for (const row of pending) {
+    const result = await processPendingPdfUploadRetry(row);
+    if (result.status === 'succeeded') {
+      succeeded += 1;
+    } else if (result.status === 'exhausted') {
+      exhausted += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  response.json({
+    success: true,
+    processed: pending.length,
+    succeeded,
+    failed,
+    exhausted,
+  });
+});
+
+app.get('/api/internal/retry-pdf-uploads/status', async (request: Request, response: Response) => {
+  if (!isInternalRetryAuthorized(request)) {
+    response.status(401).json({ success: false, message: 'Unauthorized.' });
+    return;
+  }
+
+  if (!isPrismaAvailable()) {
+    response.status(503).json({ success: false, message: 'Retry queue requires persistent storage.' });
+    return;
+  }
+
+  const now = new Date();
+
+  const [pendingCount, succeededCount, exhaustedCount, failedCount, oldestPending] = await Promise.all([
+    prisma.failedPdfUpload.count({
+      where: {
+        status: 'PENDING',
+        attemptCount: 0,
+      },
+    }),
+    prisma.failedPdfUpload.count({
+      where: {
+        status: 'SUCCEEDED',
+      },
+    }),
+    prisma.failedPdfUpload.count({
+      where: {
+        status: 'EXHAUSTED',
+      },
+    }),
+    prisma.failedPdfUpload.count({
+      where: {
+        status: 'PENDING',
+        attemptCount: {
+          gt: 0,
+        },
+      },
+    }),
+    prisma.failedPdfUpload.findFirst({
+      where: {
+        status: 'PENDING',
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      select: {
+        createdAt: true,
+        nextAttemptAt: true,
+      },
+    }),
+  ]);
+
+  const oldestPendingAgeSeconds = oldestPending
+    ? Math.max(0, Math.floor((now.getTime() - oldestPending.createdAt.getTime()) / 1000))
+    : null;
+
+  response.json({
+    success: true,
+    queue: {
+      pending: pendingCount,
+      succeeded: succeededCount,
+      failed: failedCount,
+      exhausted: exhaustedCount,
+    },
+    oldestPending: oldestPending
+      ? {
+          createdAt: oldestPending.createdAt.toISOString(),
+          nextAttemptAt: oldestPending.nextAttemptAt.toISOString(),
+          ageSeconds: oldestPendingAgeSeconds,
+        }
+      : null,
+    generatedAt: now.toISOString(),
+  });
 });
 
 export { app };

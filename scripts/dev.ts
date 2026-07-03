@@ -1,9 +1,36 @@
 import {spawn} from 'child_process';
+import {existsSync} from 'fs';
 import path from 'path';
 import process from 'process';
 import {fileURLToPath} from 'url';
+import dotenv from 'dotenv';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function resolveEnvFileArg() {
+  const envArg = process.argv.find((value) => value.startsWith('--env-file='));
+  if (!envArg) {
+    return path.join(root, '.env');
+  }
+
+  const [, rawValue] = envArg.split('=');
+  const relativeOrAbsolutePath = (rawValue || '').trim();
+  if (!relativeOrAbsolutePath) {
+    return path.join(root, '.env');
+  }
+
+  return path.isAbsolute(relativeOrAbsolutePath)
+    ? relativeOrAbsolutePath
+    : path.resolve(root, relativeOrAbsolutePath);
+}
+
+const envFilePath = resolveEnvFileArg();
+if (existsSync(envFilePath)) {
+  dotenv.config({ path: envFilePath, override: true });
+  console.log(`[dev] loaded env file: ${path.relative(root, envFilePath) || '.env'}`);
+} else {
+  console.warn(`[dev] env file not found: ${envFilePath}; continuing with existing process environment.`);
+}
 
 const clientCommand = process.platform === 'win32'
   ? path.join(root, 'node_modules', '.bin', 'vite.cmd')

@@ -11,7 +11,17 @@ export type ScreenType =
   | 'registration' 
   | 'checkout' 
   | 'confirmed' 
-  | 'admin';
+  | 'admin'
+  | 'privacy-policy'
+  | 'terms-and-conditions'
+  | 'cookie-policy';
+
+export type CookieConsentPreference = {
+  essential: true;
+  analytics: boolean;
+  marketing: boolean;
+  updatedAt: string;
+};
 
 export type TicketType = 'ordinary' | 'vip';
 

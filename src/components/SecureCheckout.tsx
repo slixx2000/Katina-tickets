@@ -69,8 +69,8 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
       return;
     }
 
-    const normalizedPhoneNumber = phoneNumber.trim();
-    if (!normalizedPhoneNumber) {
+    const normalizedPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '').trim();
+    if (!/^\+?[0-9]{9,15}$/.test(normalizedPhoneNumber)) {
       setCheckoutError('Enter the mobile money phone number for this payment.');
       return;
     }
@@ -366,6 +366,9 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
               </p>
               <p className="text-xs text-[color:var(--checkout-text)]/60">
                 You will receive a direct collection request from Lenco after submission.
+              </p>
+              <p className="text-xs text-[color:var(--checkout-text)]/75 mt-2">
+                Card and payment credentials are processed by Lenco and are not stored on our servers.
               </p>
             </div>
 

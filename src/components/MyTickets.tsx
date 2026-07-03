@@ -15,6 +15,16 @@ type TicketRecord = {
     available: boolean;
     generatedAt: string | null;
   };
+  tickets?: Array<{
+    id: string;
+    ticketId: string;
+    token: string;
+    status: 'ACTIVE' | 'CHECKED_IN' | 'REFUNDED' | 'CANCELLED';
+    pdf?: {
+      available: boolean;
+      generatedAt: string | null;
+    };
+  }>;
 };
 
 export default function MyTickets() {
@@ -65,12 +75,14 @@ export default function MyTickets() {
     void loadTickets();
   }, []);
 
-  const handleDownload = async (reference: string) => {
-    setDownloadingRef(reference);
+  const handleDownload = async (reference: string, ticketId?: string) => {
+    const downloadKey = ticketId ? `${reference}:${ticketId}` : reference;
+    setDownloadingRef(downloadKey);
     setError(null);
 
     try {
-      const response = await fetch(`/api/payments/${encodeURIComponent(reference)}/ticket-pdf`, {
+      const query = ticketId ? `?ticketId=${encodeURIComponent(ticketId)}` : '';
+      const response = await fetch(`/api/payments/${encodeURIComponent(reference)}/ticket-pdf${query}`, {
         credentials: 'include',
       });
 
@@ -92,7 +104,7 @@ export default function MyTickets() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `katina-ticket-${reference}.pdf`;
+      anchor.download = ticketId ? `katina-ticket-${ticketId}.pdf` : `katina-ticket-${reference}.pdf`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -177,15 +189,26 @@ export default function MyTickets() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => void handleDownload(item.paymentReference)}
-                  disabled={downloadingRef === item.paymentReference}
-                  className="w-full md:w-auto px-6 py-3 border border-[#F4F4F2]/35 hover:border-[#F4F4F2] text-[#F4F4F2] font-label-caps text-[10px] tracking-[0.2em] uppercase inline-flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                  {downloadingRef === item.paymentReference ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  {downloadingRef === item.paymentReference ? 'Downloading...' : 'Download PDF'}
-                </button>
+                <div className="w-full md:w-auto space-y-2">
+                  {(item.tickets && item.tickets.length > 0 ? item.tickets : []).map((ticket) => {
+                    const downloadKey = `${item.paymentReference}:${ticket.id}`;
+                    return (
+                      <div key={ticket.id} className="border border-[#F4F4F2]/20 px-3 py-2 min-w-[260px]">
+                        <p className="text-[10px] text-[#F4F4F2]/80 font-label-caps tracking-widest uppercase">{ticket.ticketId}</p>
+                        <p className="text-[10px] text-[#F4F4F2]/65 font-mono break-all mt-1">{ticket.token}</p>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(item.paymentReference, ticket.id)}
+                          disabled={downloadingRef === downloadKey}
+                          className="mt-2 w-full px-4 py-2 border border-[#F4F4F2]/35 hover:border-[#F4F4F2] text-[#F4F4F2] font-label-caps text-[10px] tracking-[0.2em] uppercase inline-flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                          {downloadingRef === downloadKey ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                          {downloadingRef === downloadKey ? 'Downloading...' : 'Download Ticket PDF'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ))}
           </div>

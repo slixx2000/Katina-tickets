@@ -84,6 +84,12 @@ enum TicketScanResult {
   INVALID_TICKET
 }
 
+enum PdfUploadRetryStatus {
+  PENDING
+  SUCCEEDED
+  EXHAUSTED
+}
+
 model User {
   id             String        @id @default(cuid())
   email          String        @unique
@@ -294,6 +300,7 @@ model Ticket {
   event             Event              @relation(fields: [eventId], references: [id], onDelete: Restrict)
   checkedInByAdmin  User?              @relation("TicketCheckedInBy", fields: [checkedInByAdminId], references: [id], onDelete: SetNull)
   scanLogs          TicketScanLog[]
+  failedPdfUploads  FailedPdfUpload[]
 
   @@index([reservationId])
   @@index([eventId])
@@ -325,4 +332,24 @@ model TicketSequence {
   id         Int      @id
   lastIssued Int      @default(0)
   updatedAt  DateTime @updatedAt
+}
+
+model FailedPdfUpload {
+  id               String               @id @default(cuid())
+  paymentReference String
+  ticketRecordId   String               @unique
+  ticketPublicId   String
+  storagePath      String
+  attemptCount     Int                  @default(0)
+  lastError        String?
+  status           PdfUploadRetryStatus @default(PENDING)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  lastAttemptAt    DateTime?
+  nextAttemptAt    DateTime             @default(now())
+
+  ticket Ticket @relation(fields: [ticketRecordId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([paymentReference])
 }

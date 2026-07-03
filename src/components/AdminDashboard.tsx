@@ -638,7 +638,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
                         K{trObj.amount.toLocaleString()}
                       </p>
                       <p className="font-label-caps text-[9px] text-[#F4F4F2]/60 tracking-wider mt-0.5 font-semibold">
-                        {trObj.timestamp}
+                        {new Date(trObj.timestamp).toLocaleString()}
                       </p>
                     </div>
                   </motion.div>

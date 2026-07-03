@@ -1,4 +1,10 @@
-export default function Footer() {
+import type { ScreenType } from '../types';
+
+interface FooterProps {
+  onNavigate: (screen: ScreenType) => void;
+}
+
+export default function Footer({ onNavigate }: FooterProps) {
   return (
     <footer className="w-full py-16 px-6 md:px-20 flex flex-col md:flex-row justify-between items-center gap-8 bg-[var(--footer-bg)] border-t border-[color:var(--header-border)] mt-12 select-none relative z-10 text-[color:var(--footer-text)] transition-all duration-300">
       <div className="font-display text-[color:var(--footer-text)] text-2xl uppercase tracking-widest font-bold">
@@ -7,32 +13,25 @@ export default function Footer() {
       
       <div className="flex flex-wrap justify-center gap-6 md:gap-8 text-[color:var(--footer-text-muted)] font-sans">
         <a 
-          href="#privacy" 
-          onClick={(e) => { e.preventDefault(); alert("Privacy safeguards protect private members only."); }}
+          href="/privacy-policy" 
+          onClick={(e) => { e.preventDefault(); onNavigate('privacy-policy'); }}
           className="font-label-caps text-[10px] md:text-xs text-[color:var(--footer-text)] hover:text-[#4E1413] transition-colors tracking-widest font-bold"
         >
-          PRIVACY
+          PRIVACY POLICY
         </a>
         <a 
-          href="#logistics" 
-          onClick={(e) => { e.preventDefault(); alert("Showroom logistics maps and backstage protocols are managed privately."); }}
+          href="/terms-and-conditions" 
+          onClick={(e) => { e.preventDefault(); onNavigate('terms-and-conditions'); }}
           className="font-label-caps text-[10px] md:text-xs text-[color:var(--footer-text)] hover:text-[#4E1413] transition-colors tracking-widest font-bold"
         >
-          LOGISTICS
+          TERMS &amp; CONDITIONS
         </a>
         <a 
-          href="#membership" 
-          onClick={(e) => { e.preventDefault(); alert("Concierge handles verified private member applications."); }}
+          href="/cookie-policy" 
+          onClick={(e) => { e.preventDefault(); onNavigate('cookie-policy'); }}
           className="font-label-caps text-[10px] md:text-xs text-[color:var(--footer-text)] hover:text-[#4E1413] transition-colors tracking-widest font-bold"
         >
-          MEMBERSHIP
-        </a>
-        <a 
-          href="#press" 
-          onClick={(e) => { e.preventDefault(); alert("Press accreditation gates open 14 days prior to event."); }}
-          className="font-label-caps text-[10px] md:text-xs text-[color:var(--footer-text)] hover:text-[#4E1413] transition-colors tracking-widest font-bold"
-        >
-          PRESS
+          COOKIE POLICY
         </a>
       </div>
 

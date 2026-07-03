@@ -19,11 +19,15 @@ import TermsAndConditionsModal from './components/TermsAndConditionsModal';
 import CustomerAuthGate from './components/CustomerAuthGate';
 import MyTickets from './components/MyTickets';
 import TicketsSoldOut from './components/TicketsSoldOut';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import TermsAndConditionsPage from './components/TermsAndConditionsPage';
+import CookiePolicyPage from './components/CookiePolicyPage';
+import CookieConsentBanner from './components/CookieConsentBanner';
 import { supabase } from './lib/supabaseClient';
 import { canEnterAdminConsole, clearServerSession, fetchServerSession, type AppSessionUser } from './auth/session';
 
 // Types and schemas definition
-import { ScreenType, TicketType, TicketPackage, RegistrationData, PaymentData, AdminStats, Transaction } from './types';
+import { ScreenType, TicketType, TicketPackage, RegistrationData, PaymentData, AdminStats, CookieConsentPreference } from './types';
 
 // Static / Initial interactive states definition
 const INITIAL_PACKAGES: TicketPackage[] = [
@@ -67,57 +71,15 @@ const INITIAL_PACKAGES: TicketPackage[] = [
 ];
 
 const INITIAL_STATS: AdminStats = {
-  ticketsSold: 7,
-  ticketsTotal: 900,
+  ticketsSold: 0,
+  ticketsTotal: 0,
   totalRevenue: 0,
   remainingInventory: {
-    ordinary: 600,
-    vip: 300
+    ordinary: 0,
+    vip: 0
   },
-  transactions: [
-    {
-      id: 'AT-817-XQ',
-      fullName: 'Eleanor Vance',
-      initials: 'EV',
-      ticketType: 'vip',
-      quantity: 2,
-      amount: 2500,
-      timestamp: '2 MINS AGO',
-      status: 'completed',
-      seatDetails: ['Row A, 12', 'Row A, 13']
-    },
-    {
-      id: 'AT-324-LM',
-      fullName: 'Julian Ross',
-      initials: 'JR',
-      ticketType: 'ordinary',
-      quantity: 1,
-      amount: 725,
-      timestamp: '15 MINS AGO',
-      status: 'completed',
-      seatDetails: ['Row C, 18']
-    },
-    {
-      id: 'AT-905-ZW',
-      fullName: 'Aria Winters',
-      initials: 'AW',
-      ticketType: 'vip',
-      quantity: 4,
-      amount: 5000,
-      timestamp: '1 HOUR AGO',
-      status: 'completed',
-      seatDetails: ['Row B, 1', 'Row B, 2', 'Row B, 3', 'Row B, 4']
-    }
-  ],
-  chartsData: [
-    { day: 'MON', count: 5, revenue: 3625 },
-    { day: 'TUE', count: 8, revenue: 5800 },
-    { day: 'WED', count: 3, revenue: 2175 },
-    { day: 'THU', count: 12, revenue: 8700 },
-    { day: 'FRI', count: 10, revenue: 7250 },
-    { day: 'SAT', count: 16, revenue: 11600 },
-    { day: 'SUN', count: 13, revenue: 9425 }
-  ]
+  transactions: [],
+  chartsData: []
 };
 
 export default function App() {
@@ -146,7 +108,20 @@ export default function App() {
 
   // T&C agreement state — persisted in sessionStorage so accepted once per visit
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
+  const [cookieConsent, setCookieConsent] = useState<CookieConsentPreference | null>(null);
   const pendingNavAfterTerms = useRef<ScreenType | null>(null);
+
+  const LEGAL_PATH_TO_SCREEN: Record<string, ScreenType> = {
+    '/privacy-policy': 'privacy-policy',
+    '/terms-and-conditions': 'terms-and-conditions',
+    '/cookie-policy': 'cookie-policy',
+  };
+
+  const SCREEN_TO_LEGAL_PATH: Partial<Record<ScreenType, string>> = {
+    'privacy-policy': '/privacy-policy',
+    'terms-and-conditions': '/terms-and-conditions',
+    'cookie-policy': '/cookie-policy',
+  };
 
   const hasAcceptedTerms = (): boolean => {
     try { return sessionStorage.getItem('tc_accepted') === '1'; } catch { return false; }
@@ -338,6 +313,67 @@ export default function App() {
   }, [isDarkMode]);
 
   useEffect(() => {
+    const path = window.location.pathname;
+    const legalScreen = LEGAL_PATH_TO_SCREEN[path];
+    if (legalScreen) {
+      setCurrentScreen(legalScreen);
+    }
+
+    const handlePopState = () => {
+      const nextPath = window.location.pathname;
+      const nextLegalScreen = LEGAL_PATH_TO_SCREEN[nextPath];
+      setCurrentScreen(nextLegalScreen || 'landing');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const legalPath = SCREEN_TO_LEGAL_PATH[currentScreen];
+    if (legalPath) {
+      if (window.location.pathname !== legalPath) {
+        window.history.pushState({}, '', legalPath);
+      }
+      return;
+    }
+
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+    }
+  }, [currentScreen]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('cookie_consent_pref');
+      if (!saved) {
+        return;
+      }
+
+      const parsed = JSON.parse(saved) as CookieConsentPreference;
+      if (parsed && parsed.essential === true) {
+        setCookieConsent(parsed);
+        (window as Window & { __katinaCookieConsent?: CookieConsentPreference }).__katinaCookieConsent = parsed;
+      }
+    } catch {
+      // Ignore malformed persisted consent.
+    }
+  }, []);
+
+  const handleCookieConsentSave = (value: CookieConsentPreference) => {
+    setCookieConsent(value);
+    try {
+      localStorage.setItem('cookie_consent_pref', JSON.stringify(value));
+    } catch {
+      // Ignore local storage write failures.
+    }
+
+    (window as Window & { __katinaCookieConsent?: CookieConsentPreference }).__katinaCookieConsent = value;
+  };
+
+  useEffect(() => {
     if (!currentUser) {
       if (inactivityTimerRef.current !== null) {
         window.clearTimeout(inactivityTimerRef.current);
@@ -425,49 +461,6 @@ export default function App() {
     }
 
     setPaymentData(data);
-    
-    // Add real-time booked ticket registration to the admin metrics list!
-    if (registrationData) {
-      const uniqueId = data.reference;
-      const nameInitials = registrationData.fullName
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .slice(0, 2)
-        .toUpperCase() || 'GT';
-
-      const costPaid = activeSelectedPackage.price * registrationData.quantity;
-
-      const newTransaction: Transaction = {
-        id: uniqueId,
-        fullName: registrationData.fullName,
-        initials: nameInitials,
-        ticketType: registrationData.ticketType,
-        quantity: registrationData.quantity,
-        amount: costPaid,
-        timestamp: 'JUST NOW',
-        status: data.status,
-        seatDetails: Array.from({ length: registrationData.quantity }, (_, i) => `Row A, ${14 + i}`)
-      };
-
-      // Prepend to transaction analytics logs
-      setAdminStats(prev => ({
-        ...prev,
-        ticketsSold: data.status === 'completed' ? prev.ticketsSold + registrationData.quantity : prev.ticketsSold,
-        transactions: [newTransaction, ...prev.transactions]
-      }));
-
-      // Decrement availability counts
-      setPackages(prev => prev.map(pkg => {
-        if (pkg.id === registrationData.ticketType && data.status === 'completed') {
-          return {
-            ...pkg,
-            remaining: Math.max(0, pkg.remaining - registrationData.quantity)
-          };
-        }
-        return pkg;
-      }));
-    }
 
     setCurrentScreen('confirmed');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -498,6 +491,44 @@ export default function App() {
   const refreshCurrentUser = async () => {
     setCurrentUser(await fetchServerSession());
   };
+
+  useEffect(() => {
+    if (currentScreen !== 'admin' || !isAdminVisible) {
+      return;
+    }
+
+    let mounted = true;
+
+    const syncAdminStats = async () => {
+      try {
+        const response = await fetch('/api/admin/overview', {
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        if (!mounted || !payload?.stats) {
+          return;
+        }
+
+        setAdminStats(payload.stats as AdminStats);
+      } catch {
+        // Keep existing state if admin overview fails to load.
+      }
+    };
+
+    void syncAdminStats();
+
+    return () => {
+      mounted = false;
+    };
+  }, [currentScreen, isAdminVisible]);
 
   const handleNavigate = (screen: ScreenType) => {
     if (screen === 'admin' && !isAdminVisible) {
@@ -646,13 +677,19 @@ export default function App() {
                 }} />
               )
             )}
+
+            {currentScreen === 'privacy-policy' && <PrivacyPolicyPage />}
+            {currentScreen === 'terms-and-conditions' && <TermsAndConditionsPage />}
+            {currentScreen === 'cookie-policy' && <CookiePolicyPage />}
           </motion.div>
         </AnimatePresence>
       </div>
 
+      <CookieConsentBanner consent={cookieConsent} onSave={handleCookieConsentSave} />
+
       {/* Global Brand Footer component */}
       <div id="footer-brand">
-        <Footer />
+        <Footer onNavigate={handleNavigate} />
       </div>
 
     </div>
