@@ -325,6 +325,20 @@ function roleRequiresMfa(role: AppRole) {
   return MFA_RECOMMENDED_ROLES.includes(role);
 }
 
+function isAdminConsoleRole(role: AppRole) {
+  return ['SUPER_ADMIN', 'ORGANIZER', 'SUPPORT', 'FINANCE'].includes(role);
+}
+
+function parseAdminConsoleAllowlist() {
+  const raw = process.env.ADMIN_CONSOLE_ALLOWLIST_EMAILS || '';
+  return new Set(
+    raw
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => email.length > 0),
+  );
+}
+
 function getAuthCookieValue(request: Request, cookieName: string) {
   const cookieHeader = request.headers.cookie;
   if (!cookieHeader) return null;
@@ -1503,18 +1517,28 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
       return;
     }
 
+    const normalizedEmail = primaryEmail.trim().toLowerCase();
+    const adminAllowlist = parseAdminConsoleAllowlist();
+    const isAllowlistedAdmin = adminAllowlist.has(normalizedEmail);
+
     const metadataRole =
       (clerkUser.publicMetadata?.role as unknown) ??
       (clerkUser.privateMetadata?.role as unknown) ??
       (clerkUser.unsafeMetadata?.role as unknown);
-    const role = normalizeAppRole(metadataRole, 'CUSTOMER');
-    const mfaEnabled = (clerkUser.publicMetadata?.mfaEnabled as unknown) === true;
+    const requestedRole = normalizeAppRole(metadataRole, 'CUSTOMER');
+    const role = isAdminConsoleRole(requestedRole) && !isAllowlistedAdmin
+      ? 'CUSTOMER'
+      : requestedRole;
+    const clerkMfaEnabled =
+      (clerkUser.publicMetadata?.mfaEnabled as unknown) === true ||
+      (clerkUser as unknown as { twoFactorEnabled?: boolean }).twoFactorEnabled === true ||
+      (clerkUser as unknown as { totpEnabled?: boolean }).totpEnabled === true;
 
     const user = await authRepository.upsertUserFromOAuth({
       id: clerkUser.id,
       email: primaryEmail,
       role,
-      mfaEnabled,
+      mfaEnabled: clerkMfaEnabled,
     });
 
     const principal: AuthPrincipal = {
