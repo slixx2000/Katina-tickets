@@ -130,6 +130,10 @@ function hasValue(value: string | undefined) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isProductionRuntime() {
+  return (process.env.NODE_ENV || '').toLowerCase() === 'production';
+}
+
 function validateStartupConfig() {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -139,6 +143,8 @@ function validateStartupConfig() {
   const appUrlConfigured = hasValue(process.env.APP_URL) || hasValue(process.env.APP_ORIGIN);
   const supabaseUrlConfigured = hasValue(process.env.SUPABASE_URL) || hasValue(process.env.VITE_SUPABASE_URL);
   const supabaseServiceKeyConfigured = hasValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const lencoSecretConfigured = hasValue(process.env.LENCO_SECRET_KEY);
+  const lencoWebhookSecretConfigured = hasValue(process.env.LENCO_WEBHOOK_SECRET);
 
   if (!appUrlConfigured) {
     warnings.push('APP_URL_OR_ORIGIN_MISSING');
@@ -154,6 +160,18 @@ function validateStartupConfig() {
 
   if (hasValue(process.env.SUPABASE_TICKETS_BUCKET) && (!supabaseUrlConfigured || !supabaseServiceKeyConfigured)) {
     warnings.push('TICKET_STORAGE_BUCKET_CONFIGURED_WITHOUT_SUPABASE_ADMIN_CREDENTIALS');
+  }
+
+  if (isProductionRuntime() && !lencoSecretConfigured) {
+    errors.push('LENCO_SECRET_KEY_REQUIRED_IN_PRODUCTION');
+  }
+
+  if (isProductionRuntime() && !lencoWebhookSecretConfigured) {
+    errors.push('LENCO_WEBHOOK_SECRET_REQUIRED_IN_PRODUCTION');
+  }
+
+  if (lencoSecretConfigured && !lencoWebhookSecretConfigured) {
+    warnings.push('LENCO_WEBHOOK_SECRET_MISSING_SIGNATURE_VERIFICATION_REDUCED');
   }
 
   return {
@@ -222,6 +240,7 @@ const allowedOrigins = Array.from(
 const authRateLimiter = createInMemoryRateLimiter({ limit: 8, windowMs: 60_000 });
 const paymentRateLimiter = createInMemoryRateLimiter({ limit: 20, windowMs: 60_000 });
 const webhookRateLimiter = createInMemoryRateLimiter({ limit: 120, windowMs: 60_000 });
+const ticketReadRateLimiter = createInMemoryRateLimiter({ limit: 60, windowMs: 60_000 });
 const inMemoryWebhookEvents = new Set<string>();
 
 app.use(
@@ -479,9 +498,19 @@ function parseWebhookSignature(signatureHeader: string | undefined) {
 function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined) {
   const secret = process.env.LENCO_WEBHOOK_SECRET;
   const providedSignature = parseWebhookSignature(signatureHeader);
+  const isProd = isProductionRuntime();
 
   if (!secret || !providedSignature) {
+    if (isProd) {
+      return false;
+    }
+
     return true;
+  }
+
+  const normalizedProvidedSignature = providedSignature.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalizedProvidedSignature)) {
+    return false;
   }
 
   const expectedSignature = crypto
@@ -489,11 +518,11 @@ function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undef
     .update(rawBody)
     .digest('hex');
 
-  if (expectedSignature.length !== providedSignature.length) {
+  if (expectedSignature.length !== normalizedProvidedSignature.length) {
     return false;
   }
 
-  return crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(providedSignature));
+  return crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(normalizedProvidedSignature));
 }
 
 function toJsonObject(value: unknown): Record<string, unknown> | undefined {
@@ -2191,7 +2220,7 @@ app.post('/api/organizer/events', async (request: Request, response: Response) =
   response.json({ success: true, section: 'organizer', user: principal });
 });
 
-app.get('/api/me/tickets', async (request: Request, response: Response) => {
+app.get('/api/me/tickets', ticketReadRateLimiter, async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2436,7 +2465,7 @@ app.post(
   },
 );
 
-app.get('/api/payments/:reference/reservation', async (request: Request<{ reference: string }>, response: Response) => {
+app.get('/api/payments/:reference/reservation', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2503,7 +2532,7 @@ app.get('/api/payments/:reference/reservation', async (request: Request<{ refere
   });
 });
 
-app.get('/api/payments/:reference/ticket-token', async (request: Request<{ reference: string }>, response: Response) => {
+app.get('/api/payments/:reference/ticket-token', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -2568,7 +2597,7 @@ app.get('/api/payments/:reference/ticket-token', async (request: Request<{ refer
   });
 });
 
-app.get('/api/payments/:reference/ticket-pdf', async (request: Request<{ reference: string }>, response: Response) => {
+app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });

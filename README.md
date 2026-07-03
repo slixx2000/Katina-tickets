@@ -47,6 +47,35 @@ The dev server now proxies `/api` requests to the local Express backend so the c
 
 When you’re ready for production, the next step is to harden the deployment profile (TLS, CSP, monitoring, and CI quality gates) and run Prisma migrations against your production database.
 
+## Vercel LENCO Env Sync
+
+Use the new sync script to update LENCO-related Vercel environment variables from your local `.env` values:
+
+```bash
+npx vercel login
+npx vercel link
+npm run vercel:env:lenco
+```
+
+To overwrite all LENCO env values across production, preview, and development:
+
+```bash
+npm run vercel:env:lenco:all
+```
+
+This sync includes:
+
+- `LENCO_ENV`
+- `LENCO_PUBLIC_KEY`
+- `LENCO_SECRET_KEY`
+- `LENCO_WEBHOOK_SECRET`
+- `LENCO_API_BASE_URL`
+- `LENCO_CHECKOUT_PATH`
+- `APP_URL`
+- `APP_ORIGIN`
+
+Security note: never create `VITE_LENCO_SECRET_KEY` or `VITE_LENCO_WEBHOOK_SECRET`, because `VITE_` variables are bundled into the browser build.
+
 ## Supabase Setup
 
 If you want to wire the real Supabase project now, use this sequence from the project root:

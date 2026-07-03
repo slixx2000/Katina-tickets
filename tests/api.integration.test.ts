@@ -104,6 +104,41 @@ describe('API integration', () => {
     expect(payResponse.status).not.toBe(401);
   });
 
+  it('rate limits repeated payment attempts from the same session', async () => {
+    const sessionResponse = await request(app)
+      .post('/api/auth/exchange')
+      .set('Origin', 'http://localhost:3000')
+      .set('Referer', 'http://localhost:3000')
+      .send({ accessToken: 'dev-session:ratelimit@example.com:CUSTOMER' });
+
+    expect(sessionResponse.status).toBe(200);
+    const cookie = sessionResponse.headers['set-cookie'];
+
+    let saw429 = false;
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const payResponse = await request(app)
+        .post('/api/pay')
+        .set('Cookie', cookie)
+        .send({
+          amount: 1250,
+          currency: 'ZMW',
+          description: `Priority Ticket x1 (${attempt})`,
+          metadata: {
+            ticketType: 'vip',
+            quantity: 1,
+          },
+        });
+
+      if (payResponse.status === 429) {
+        saw429 = true;
+        break;
+      }
+    }
+
+    expect(saw429).toBe(true);
+  });
+
   it('requires authentication before reading reservation details', async () => {
     const response = await request(app).get('/api/payments/LENCO-TEST-REF-12345/reservation');
 
