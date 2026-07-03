@@ -57,6 +57,19 @@ export type SessionStore = {
 
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 8;
 const DEFAULT_REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const DEFAULT_IDLE_TIMEOUT_MS = 1000 * 60 * 30;
+
+function resolveIdleTimeoutMs() {
+  const raw = process.env.SESSION_IDLE_TIMEOUT_MINUTES;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_IDLE_TIMEOUT_MS;
+  }
+
+  return parsed * 60 * 1000;
+}
+
+const SESSION_IDLE_TIMEOUT_MS = resolveIdleTimeoutMs();
 
 function hashToken(token: string) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -124,6 +137,11 @@ export class InMemorySessionStore implements SessionStore {
     const record = this.sessionsById.get(sessionId);
     if (!record || record.revokedAt) return null;
     if (record.expiresAt.getTime() <= Date.now()) return null;
+    if (record.lastSeenAt && Date.now() - record.lastSeenAt.getTime() > SESSION_IDLE_TIMEOUT_MS) {
+      record.revokedAt = new Date();
+      record.updatedAt = new Date();
+      return null;
+    }
 
     record.lastSeenAt = new Date();
     record.updatedAt = new Date();
@@ -140,6 +158,11 @@ export class InMemorySessionStore implements SessionStore {
     if (!record || record.revokedAt) return null;
     if (record.refreshExpiresAt.getTime() <= Date.now()) return null;
     if (record.refreshTokenHash !== hashed) return null;
+    if (record.lastSeenAt && Date.now() - record.lastSeenAt.getTime() > SESSION_IDLE_TIMEOUT_MS) {
+      record.revokedAt = new Date();
+      record.updatedAt = new Date();
+      return null;
+    }
 
     const newAccessToken = secureToken();
     const newRefreshToken = secureToken();

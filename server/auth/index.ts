@@ -105,6 +105,46 @@ export function createRoleGuard(requiredRoles: readonly AppRole[]) {
 }
 
 export function createOriginGuard(allowedOrigins: readonly string[]) {
+  const normalizedAllowed = allowedOrigins
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .map((value) => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return value.replace(/\/+$/, '');
+      }
+    });
+
+  const isAllowedOrigin = (value: string | undefined, request: Request) => {
+    if (!value) {
+      return true;
+    }
+
+    let requestOrigin: string;
+    try {
+      requestOrigin = new URL(value).origin;
+    } catch {
+      return false;
+    }
+
+    if (normalizedAllowed.includes(requestOrigin)) {
+      return true;
+    }
+
+    const forwardedHost = request.headers['x-forwarded-host'];
+    const hostHeader = typeof forwardedHost === 'string'
+      ? forwardedHost.split(',')[0]?.trim()
+      : request.headers.host;
+    if (!hostHeader) {
+      return false;
+    }
+
+    const normalizedHost = hostHeader.toLowerCase();
+    const requestHost = new URL(requestOrigin).host.toLowerCase();
+    return requestHost === normalizedHost;
+  };
+
   return (request: Request, response: Response, next: NextFunction) => {
     const origin = request.headers.origin;
     if (!origin) {
@@ -112,7 +152,7 @@ export function createOriginGuard(allowedOrigins: readonly string[]) {
       return;
     }
 
-    if (!allowedOrigins.includes(origin)) {
+    if (!isAllowedOrigin(origin, request)) {
       response.status(403).json({ success: false, message: 'Origin not allowed.' });
       return;
     }
@@ -122,6 +162,46 @@ export function createOriginGuard(allowedOrigins: readonly string[]) {
 }
 
 export function createCsrfGuard(allowedOrigins: readonly string[]) {
+  const normalizedAllowed = allowedOrigins
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .map((value) => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return value.replace(/\/+$/, '');
+      }
+    });
+
+  const isAllowedOrigin = (value: string | undefined, request: Request) => {
+    if (!value) {
+      return true;
+    }
+
+    let requestOrigin: string;
+    try {
+      requestOrigin = new URL(value).origin;
+    } catch {
+      return false;
+    }
+
+    if (normalizedAllowed.includes(requestOrigin)) {
+      return true;
+    }
+
+    const forwardedHost = request.headers['x-forwarded-host'];
+    const hostHeader = typeof forwardedHost === 'string'
+      ? forwardedHost.split(',')[0]?.trim()
+      : request.headers.host;
+    if (!hostHeader) {
+      return false;
+    }
+
+    const normalizedHost = hostHeader.toLowerCase();
+    const requestHost = new URL(requestOrigin).host.toLowerCase();
+    return requestHost === normalizedHost;
+  };
+
   return (request: Request, response: Response, next: NextFunction) => {
     const origin = request.headers.origin;
     const referer = request.headers.referer;
@@ -131,7 +211,7 @@ export function createCsrfGuard(allowedOrigins: readonly string[]) {
       return;
     }
 
-    const matched = [origin, referer].some((value) => value ? allowedOrigins.some((allowedOrigin) => value.startsWith(allowedOrigin)) : false);
+    const matched = [origin, referer].some((value) => isAllowedOrigin(value, request));
     if (!matched) {
       response.status(403).json({ success: false, message: 'CSRF validation failed.' });
       return;

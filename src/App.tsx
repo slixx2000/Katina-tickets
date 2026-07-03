@@ -18,6 +18,7 @@ import AdminLogin from './components/AdminLogin';
 import TermsAndConditionsModal from './components/TermsAndConditionsModal';
 import CustomerAuthGate from './components/CustomerAuthGate';
 import MyTickets from './components/MyTickets';
+import TicketsSoldOut from './components/TicketsSoldOut';
 import { supabase } from './lib/supabaseClient';
 import { canEnterAdminConsole, clearServerSession, fetchServerSession, type AppSessionUser } from './auth/session';
 
@@ -134,6 +135,14 @@ export default function App() {
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats>(INITIAL_STATS);
   const hasAuthenticatedCustomer = Boolean(currentUser) || Boolean(isClerkSignedIn);
+  const isAdminVisible = canEnterAdminConsole(currentUser);
+  const areTicketsSoldOut = packages.every((pkg) => pkg.remaining <= 0);
+  const inactivityTimerRef = useRef<number | null>(null);
+
+  const sessionIdleTimeoutMinutes = Number.parseInt(import.meta.env.VITE_SESSION_IDLE_TIMEOUT_MINUTES || '30', 10);
+  const sessionIdleTimeoutMs = (Number.isFinite(sessionIdleTimeoutMinutes) && sessionIdleTimeoutMinutes > 0
+    ? sessionIdleTimeoutMinutes
+    : 30) * 60 * 1000;
 
   // T&C agreement state — persisted in sessionStorage so accepted once per visit
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
@@ -320,10 +329,62 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
+  useEffect(() => {
+    if (!currentUser) {
+      if (inactivityTimerRef.current !== null) {
+        window.clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+      return;
+    }
+
+    const protectedScreens: ScreenType[] = ['select-allocation', 'registration', 'checkout', 'my-tickets'];
+
+    const forceSessionTimeout = () => {
+      void (async () => {
+        await clearServerSession();
+        setCurrentUser(null);
+        setPendingTicketType(null);
+        setPendingPostAuthScreen(null);
+        if (protectedScreens.includes(currentScreen)) {
+          setCurrentScreen('customer-auth');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      })();
+    };
+
+    const resetTimer = () => {
+      if (inactivityTimerRef.current !== null) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
+
+      inactivityTimerRef.current = window.setTimeout(forceSessionTimeout, sessionIdleTimeoutMs);
+    };
+
+    const trackedEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
+    trackedEvents.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      trackedEvents.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+      if (inactivityTimerRef.current !== null) {
+        window.clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    };
+  }, [currentUser, currentScreen, sessionIdleTimeoutMs]);
+
   // Selections retrieve
   const activeSelectedPackage = packages.find(p => p.id === selectedPkgId) || packages[0];
 
   const handleSelectPackage = (id: TicketType) => {
+    const selectedPackage = packages.find((pkg) => pkg.id === id);
+    if (!selectedPackage || selectedPackage.remaining <= 0) {
+      setCurrentScreen('sold-out');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     if (!hasAuthenticatedCustomer) {
       setPendingTicketType(id);
       setCurrentScreen('customer-auth');
@@ -431,6 +492,10 @@ export default function App() {
   };
 
   const handleNavigate = (screen: ScreenType) => {
+    if (screen === 'admin' && !isAdminVisible) {
+      return;
+    }
+
     if (screen === 'my-tickets' && !hasAuthenticatedCustomer) {
       setPendingPostAuthScreen('my-tickets');
       setCurrentScreen('customer-auth');
@@ -460,6 +525,7 @@ export default function App() {
         }
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode((prev: boolean) => !prev)}
+        showAdminPortal={isAdminVisible}
       />
 
       {/* Terms & Conditions Modal — shown before first ticket navigation */}
@@ -489,9 +555,23 @@ export default function App() {
               />
             )}
             {currentScreen === 'select-allocation' && (
-              <SelectAllocation 
-                packages={packages.slice(0, 2)} 
-                onSelect={handleSelectPackage} 
+              areTicketsSoldOut ? (
+                <TicketsSoldOut
+                  onBackHome={() => setCurrentScreen('landing')}
+                  onViewTickets={() => handleNavigate('my-tickets')}
+                />
+              ) : (
+                <SelectAllocation
+                  packages={packages.slice(0, 2)}
+                  onSelect={handleSelectPackage}
+                />
+              )
+            )}
+
+            {currentScreen === 'sold-out' && (
+              <TicketsSoldOut
+                onBackHome={() => setCurrentScreen('landing')}
+                onViewTickets={() => handleNavigate('my-tickets')}
               />
             )}
 

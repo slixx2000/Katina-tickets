@@ -10,6 +10,7 @@ interface HeaderProps {
   onBack?: () => void;
   isDarkMode: boolean;
   onToggleTheme: () => void;
+  showAdminPortal?: boolean;
 }
 
 export default function Header({ 
@@ -17,7 +18,8 @@ export default function Header({
   onNavigate, 
   onBack, 
   isDarkMode,
-  onToggleTheme
+  onToggleTheme,
+  showAdminPortal = false,
 }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -73,7 +75,7 @@ export default function Header({
               </button>
             </SignInButton>
             <SignUpButton mode="modal">
-              <button className="px-4 py-2 text-[10px] md:text-xs tracking-[0.16em] font-bold uppercase bg-[var(--app-cta-hover)] text-[var(--app-on-cta)] border border-[var(--app-cta-hover)] hover:opacity-90 transition-opacity">
+              <button className="hidden md:inline-block px-4 py-2 text-[10px] md:text-xs tracking-[0.16em] font-bold uppercase bg-[var(--app-cta-hover)] text-[var(--app-on-cta)] border border-[var(--app-cta-hover)] hover:opacity-90 transition-opacity">
                 Sign Up
               </button>
             </SignUpButton>
@@ -108,28 +110,29 @@ export default function Header({
             className="absolute top-full left-6 md:left-20 mt-2 w-72 bg-[var(--theme-white-part-bg)] border border-[color:var(--theme-white-part-border)] p-6 shadow-2xl z-50 text-[var(--theme-white-part-text)] rounded-none font-sans"
           >
             <div className="flex flex-col gap-6">
-              {/* Section 1: Navigation / Admin Portal */}
-              <div>
-                <span className="font-display text-[9px] tracking-[0.25em] font-bold uppercase text-[var(--theme-white-part-text-muted)] block mb-3">
-                  SYSTEM PORTAL
-                </span>
-                
-                <div className="bg-[color:var(--theme-white-part-text)]/5 p-0.5 border border-[color:var(--theme-white-part-border)] rounded-none">
-                  <button
-                    onClick={() => {
-                      onNavigate('admin');
-                      setMenuOpen(false);
-                    }}
-                    className={`w-full text-center py-2.5 font-label-caps text-[10px] tracking-widest uppercase transition-all duration-300 font-bold ${
-                      currentScreen === 'admin'
-                        ? 'bg-[var(--app-cta-hover)] text-[var(--app-on-cta)]'
-                        : 'text-[var(--theme-white-part-text)] hover:bg-[color:var(--app-cta-hover)]/10'
-                    }`}
-                  >
-                    ADMIN
-                  </button>
+              {showAdminPortal && (
+                <div>
+                  <span className="font-display text-[9px] tracking-[0.25em] font-bold uppercase text-[var(--theme-white-part-text-muted)] block mb-3">
+                    SYSTEM PORTAL
+                  </span>
+
+                  <div className="bg-[color:var(--theme-white-part-text)]/5 p-0.5 border border-[color:var(--theme-white-part-border)] rounded-none">
+                    <button
+                      onClick={() => {
+                        onNavigate('admin');
+                        setMenuOpen(false);
+                      }}
+                      className={`w-full text-center py-2.5 font-label-caps text-[10px] tracking-widest uppercase transition-all duration-300 font-bold ${
+                        currentScreen === 'admin'
+                          ? 'bg-[var(--app-cta-hover)] text-[var(--app-on-cta)]'
+                          : 'text-[var(--theme-white-part-text)] hover:bg-[color:var(--app-cta-hover)]/10'
+                      }`}
+                    >
+                      ADMIN
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Section 2: Display Settings */}
               <div>
