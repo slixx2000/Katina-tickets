@@ -135,6 +135,15 @@ function hasValue(value: string | undefined) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isDatabaseConnectivityError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("can't reach database server") || message.includes('prismaclientinitializationerror');
+}
+
 function isProductionRuntime() {
   return (process.env.NODE_ENV || '').toLowerCase() === 'production';
 }
@@ -1469,6 +1478,7 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
       refreshExpiresAt: bundle.refreshExpiresAt.toISOString(),
     });
   } catch (error) {
+    const dbUnavailable = isDatabaseConnectivityError(error);
     await emitAuditEvent({
       name: 'LOGIN_FAILED',
       metadata: {
@@ -1477,7 +1487,12 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
       },
       request,
     });
-    response.status(401).json({ success: false, message: 'Unable to verify Clerk session.' });
+    response.status(dbUnavailable ? 503 : 401).json({
+      success: false,
+      message: dbUnavailable
+        ? 'Authentication is temporarily unavailable because the database is offline. Please retry in a minute.'
+        : 'Unable to verify Clerk session.',
+    });
   }
 });
 
