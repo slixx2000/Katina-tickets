@@ -34,9 +34,8 @@ export interface RegistrationData {
 }
 
 export interface PaymentData {
-  method: 'card' | 'mobilemoney';
+  method: 'mobilemoney';
   reference: string;
-  providerReference?: string;
   status: 'pending' | 'completed' | 'failed';
 }
 

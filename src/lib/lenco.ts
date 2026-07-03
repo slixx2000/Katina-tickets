@@ -4,6 +4,8 @@ export interface LencoPaymentRequest {
   description: string;
   customerEmail?: string;
   customerName?: string;
+  phoneNumber: string;
+  operator: 'mtn' | 'airtel' | 'zamtel';
   metadata?: Record<string, string | number | boolean>;
 }
 
@@ -12,8 +14,8 @@ export interface LencoPaymentResponse {
   statusCode?: number;
   message?: string;
   reference?: string;
-  checkoutUrl?: string;
-  providerReference?: string;
+  id?: string;
+  lencoReference?: string;
   status?: string;
 }
 
@@ -35,8 +37,8 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
         statusCode: response.status,
         message: data.message,
         reference: data.reference,
-        checkoutUrl: data.checkoutUrl,
-        providerReference: data.providerReference,
+        id: data.id,
+        lencoReference: data.lencoReference,
         status: data.status,
       };
     }
@@ -62,5 +64,5 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
     return { success: false, message: 'Unable to reach payment service. Please retry shortly.' };
   }
 
-  return { success: false, message: 'Payment session could not be created.' };
+  return { success: false, message: 'Payment collection could not be created.' };
 }

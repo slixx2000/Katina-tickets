@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 
 let app: Express;
@@ -14,6 +14,21 @@ beforeAll(async () => {
 
   const serverModule = await import('../server/index');
   app = serverModule.app;
+});
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify({
+    success: true,
+    data: {
+      id: 'lenco-test-collection-id',
+      reference: 'LENCO-TEST-REFERENCE',
+      lencoReference: 'lenco-test-collection-id',
+      status: 'PENDING',
+    },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  }));
 });
 
 describe('API integration', () => {
@@ -95,6 +110,8 @@ describe('API integration', () => {
         amount: 1250,
         currency: 'ZMW',
         description: 'Priority Ticket x1',
+        phoneNumber: '0977000000',
+        operator: 'mtn',
         metadata: {
           ticketType: 'vip',
           quantity: 1,
@@ -102,6 +119,7 @@ describe('API integration', () => {
       });
 
     expect(payResponse.status).not.toBe(401);
+    expect(payResponse.body.success).toBe(true);
   });
 
   it('rate limits repeated payment attempts from the same session', async () => {
@@ -124,6 +142,8 @@ describe('API integration', () => {
           amount: 1250,
           currency: 'ZMW',
           description: `Priority Ticket x1 (${attempt})`,
+          phoneNumber: '0977000000',
+          operator: 'mtn',
           metadata: {
             ticketType: 'vip',
             quantity: 1,

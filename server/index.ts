@@ -17,7 +17,7 @@ import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared
 import { isPrismaAvailable, prisma } from './lib/prisma.js';
 import { PrismaSessionStore } from './auth/prisma-session-store.js';
 import { PrismaAuthRepository } from './auth/prisma-repository.js';
-import { canUseLencoGateway, createLencoCheckoutSession, parseLencoWebhookEvent } from './lib/lenco.js';
+import { canUseLencoGateway, getLencoCollectionStatus, parseLencoWebhookEvent } from './lib/lenco.js';
 import {
   buildOtpAuthUri,
   decryptMfaSecret,
@@ -34,6 +34,8 @@ type LencoPaymentRequest = {
   description?: unknown;
   customerEmail?: unknown;
   customerName?: unknown;
+  phoneNumber?: unknown;
+  operator?: unknown;
   metadata?: unknown;
 };
 
@@ -288,6 +290,28 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function resolveClerkSecretCandidates() {
+  const useDevClerkInstance = !isProductionRuntime() && process.env.CLERK_USE_DEV_INSTANCE === 'true';
+  const preferred = useDevClerkInstance ? process.env.CLERK_SECRET_KEY_DEV : process.env.CLERK_SECRET_KEY;
+  const fallback = useDevClerkInstance ? process.env.CLERK_SECRET_KEY : process.env.CLERK_SECRET_KEY_DEV;
+  const candidates: string[] = [];
+
+  if (isNonEmptyString(preferred)) {
+    candidates.push(preferred.trim());
+  }
+
+  // In development, allow fallback to the alternate secret to reduce stale-cookie
+  // friction when switching between live and dev Clerk instances.
+  if (!isProductionRuntime() && isNonEmptyString(fallback)) {
+    const normalizedFallback = fallback.trim();
+    if (!candidates.includes(normalizedFallback)) {
+      candidates.push(normalizedFallback);
+    }
+  }
+
+  return candidates;
+}
+
 function normalizeMfaCode(value: unknown) {
   if (!isNonEmptyString(value)) {
     return null;
@@ -523,12 +547,13 @@ function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undef
   }
 
   const normalizedProvidedSignature = providedSignature.trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(normalizedProvidedSignature)) {
+  if (!/^[a-f0-9]{128}$/.test(normalizedProvidedSignature)) {
     return false;
   }
 
+  const webhookHashKey = crypto.createHash('sha256').update(secret).digest('hex');
   const expectedSignature = crypto
-    .createHmac('sha256', secret)
+    .createHmac('sha512', webhookHashKey)
     .update(rawBody)
     .digest('hex');
 
@@ -1189,6 +1214,26 @@ async function updatePaymentIntentFromWebhook(input: {
   return result.count > 0;
 }
 
+function mapLencoStatusToPaymentStatus(status: string | undefined) {
+  if (status === 'PAID') {
+    return 'PAID' as const;
+  }
+
+  if (status === 'FAILED') {
+    return 'FAILED' as const;
+  }
+
+  if (status === 'CANCELLED') {
+    return 'CANCELLED' as const;
+  }
+
+  if (status === 'REFUNDED') {
+    return 'REFUNDED' as const;
+  }
+
+  return 'PENDING' as const;
+}
+
 async function persistWebhookDelivery(input: {
   providerEventId: string;
   signature?: string;
@@ -1415,21 +1460,40 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
     return;
   }
 
-  const clerkSecretKey = process.env.CLERK_SECRET_KEY;
-  if (!isNonEmptyString(clerkSecretKey)) {
+  const clerkSecretCandidates = resolveClerkSecretCandidates();
+  if (clerkSecretCandidates.length === 0) {
     response.status(503).json({ success: false, message: 'Clerk server authentication is not configured.' });
     return;
   }
 
   try {
-    const claims = await verifyToken(clerkToken, { secretKey: clerkSecretKey });
+    let claims: Awaited<ReturnType<typeof verifyToken>> | null = null;
+    let verifiedSecretKey: string | null = null;
+    let lastVerificationError: unknown = null;
+
+    for (const candidateKey of clerkSecretCandidates) {
+      try {
+        claims = await verifyToken(clerkToken, { secretKey: candidateKey });
+        verifiedSecretKey = candidateKey;
+        break;
+      } catch (verificationError) {
+        lastVerificationError = verificationError;
+      }
+    }
+
+    if (!claims || !verifiedSecretKey) {
+      throw lastVerificationError instanceof Error
+        ? lastVerificationError
+        : new Error('Unable to verify Clerk token with configured keys.');
+    }
+
     const clerkUserId = typeof claims.sub === 'string' ? claims.sub : null;
     if (!clerkUserId) {
       response.status(401).json({ success: false, message: 'Invalid Clerk token.' });
       return;
     }
 
-    const clerkClient = createClerkClient({ secretKey: clerkSecretKey });
+    const clerkClient = createClerkClient({ secretKey: verifiedSecretKey });
     const clerkUser = await clerkClient.users.getUser(clerkUserId);
     const primaryEmail = clerkUser.emailAddresses.find((email) => email.id === clerkUser.primaryEmailAddressId)?.emailAddress
       ?? clerkUser.emailAddresses[0]?.emailAddress;
@@ -2403,7 +2467,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     return;
   }
 
-  const {amount, currency, description, customerEmail, customerName, metadata} = request.body;
+  const {amount, currency, description, customerEmail, customerName, phoneNumber, operator, metadata} = request.body;
 
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
     response.status(400).json({success: false, message: 'A valid amount is required.'});
@@ -2412,6 +2476,18 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
 
   if (!isNonEmptyString(currency) || !isNonEmptyString(description)) {
     response.status(400).json({success: false, message: 'Currency and description are required.'});
+    return;
+  }
+
+  const normalizedPhone = isNonEmptyString(phoneNumber) ? phoneNumber.trim() : '';
+  const normalizedOperator = isNonEmptyString(operator) ? operator.trim().toLowerCase() : '';
+  if (!normalizedPhone) {
+    response.status(400).json({ success: false, message: 'A mobile money phone number is required.' });
+    return;
+  }
+
+  if (!['mtn', 'airtel', 'zamtel'].includes(normalizedOperator)) {
+    response.status(400).json({ success: false, message: 'A valid operator is required.' });
     return;
   }
 
@@ -2435,6 +2511,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     description: string;
     customerEmail?: string;
     customerName?: string;
+    phoneNumber: string;
+    operator: 'mtn' | 'airtel' | 'zamtel';
     metadata?: Record<string, unknown>;
     reference: string;
   } = {
@@ -2443,6 +2521,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     description: description.trim(),
     customerEmail: isNonEmptyString(customerEmail) ? customerEmail.trim() : undefined,
     customerName: isNonEmptyString(customerName) ? customerName.trim() : undefined,
+    phoneNumber: normalizedPhone,
+    operator: normalizedOperator as 'mtn' | 'airtel' | 'zamtel',
     metadata: normalizedMetadata,
     reference,
   };
@@ -2458,20 +2538,6 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     metadata: payload.metadata,
   });
 
-  let checkout;
-  try {
-    checkout = await createLencoCheckoutSession(payload);
-  } catch (error) {
-    if (isPrismaAvailable()) {
-      await updatePaymentIntentFromWebhook({ reference, status: 'FAILED' });
-    }
-    response.status(502).json({
-      success: false,
-      message: error instanceof Error ? error.message : 'Unable to create checkout session with payment provider.',
-    });
-    return;
-  }
-
   await emitAuditEvent({
     name: 'SESSION_CREATED',
     actorUserId: principal.userId,
@@ -2484,12 +2550,73 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
 
   response.json({
     success: true,
-    message: 'Payment session created.',
+    message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
     reference,
-    checkoutUrl: checkout.checkoutUrl,
-    providerReference: checkout.providerReference,
-    status: checkout.status ?? 'PENDING',
+    amount,
+    currency: payload.currency,
+    customerEmail: payload.customerEmail,
+    customerName: payload.customerName,
+    phoneNumber: payload.phoneNumber,
+    operator: payload.operator,
   });
+});
+
+app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
+  const principal = await requireAuthenticatedSession(request);
+  if (!principal) {
+    response.status(401).json({ success: false, message: 'Authentication required.' });
+    return;
+  }
+
+  const { reference } = request.params;
+  if (!reference || reference.trim().length < 8) {
+    response.status(400).json({ success: false, message: 'Payment reference is required.' });
+    return;
+  }
+
+  const payment = isPrismaAvailable()
+    ? await prisma.paymentTransaction.findUnique({ where: { reference }, select: { userId: true } })
+    : { userId: null };
+
+  if (!payment) {
+    response.status(404).json({ success: false, message: 'Payment not found for reference.' });
+    return;
+  }
+
+  if (!canAccessPaymentReference(principal, payment.userId ?? null)) {
+    response.status(403).json({ success: false, message: 'You are not authorized to view this payment.' });
+    return;
+  }
+
+  if (!canUseLencoGateway()) {
+    response.status(503).json({ success: false, message: 'Payment provider not configured on the server.' });
+    return;
+  }
+
+  try {
+    const status = await getLencoCollectionStatus(reference);
+    if (isPrismaAvailable() && status.status) {
+      const mappedStatus = mapLencoStatusToPaymentStatus(status.status);
+      await updatePaymentIntentFromWebhook({
+        reference,
+        providerPaymentId: status.id,
+        status: mappedStatus,
+      });
+    }
+
+    response.json({
+      success: true,
+      reference,
+      id: status.id,
+      lencoReference: status.lencoReference,
+      status: status.status,
+    });
+  } catch (error) {
+    response.status(502).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Unable to verify payment status with Lenco.',
+    });
+  }
 });
 
 app.post(
@@ -2535,7 +2662,7 @@ app.post(
     const updated = await updatePaymentIntentFromWebhook({
       reference: parsed.reference,
       providerPaymentId: parsed.providerPaymentId,
-      status: parsed.status,
+      status: mapLencoStatusToPaymentStatus(parsed.status),
     });
 
     const reservationCreated = parsed.status === 'PAID'

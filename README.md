@@ -70,11 +70,32 @@ This sync includes:
 - `LENCO_SECRET_KEY`
 - `LENCO_WEBHOOK_SECRET`
 - `LENCO_API_BASE_URL`
-- `LENCO_CHECKOUT_PATH`
 - `APP_URL`
 - `APP_ORIGIN`
 
 Security note: never create `VITE_LENCO_SECRET_KEY` or `VITE_LENCO_WEBHOOK_SECRET`, because `VITE_` variables are bundled into the browser build.
+
+## Reproduce Production Env Locally
+
+To reproduce production-only behavior (for example `/api/pay` returning `502`) on localhost:
+
+1. Pull production env values from Vercel into a local file:
+
+```bash
+npx vercel env pull .env.production.local --environment=production
+```
+
+2. Start both frontend and API using that env file:
+
+```bash
+npm run dev:prod-env
+```
+
+Notes:
+
+- `dev:prod-env` loads `.env.production.local` for both Vite and the Express API.
+- If you want to test a different file, run: `npm run dev -- --env-file=.env.some-file`.
+- Keep `NODE_ENV` as development locally so secure-cookie and local debugging behavior remain usable.
 
 ## Supabase Setup
 
@@ -112,6 +133,13 @@ Use this order for proper auth across admin and customer users:
 4. Confirm the backend cookie/session exchange works for both roles.
 5. Run the Prisma migrations against the target database before testing login and payments.
 6. Keep `ALLOW_DEV_AUTH_BYPASS="false"` unless you intentionally want local mock login.
+
+### Clerk Local Dev Alignment
+
+- The frontend and backend must use keys from the same Clerk instance.
+- Default behavior uses `VITE_CLERK_PUBLISHABLE_KEY` with `CLERK_SECRET_KEY`.
+- Only enable local dev Clerk by setting both `VITE_CLERK_USE_DEV_INSTANCE="true"` and `CLERK_USE_DEV_INSTANCE="true"`, and by supplying matching `VITE_CLERK_PUBLISHABLE_KEY_DEV` + `CLERK_SECRET_KEY_DEV`.
+- If you switch Clerk instances during local testing, sign out and clear cookies to avoid stale token/JWKS mismatch.
 
 ## Verify & Test
 
