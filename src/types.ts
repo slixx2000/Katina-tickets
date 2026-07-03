@@ -33,7 +33,7 @@ export interface RegistrationData {
 }
 
 export interface PaymentData {
-  method: 'card' | 'applepay' | 'mobilemoney';
+  method: 'card' | 'mobilemoney';
   reference: string;
   providerReference?: string;
   status: 'pending' | 'completed' | 'failed';

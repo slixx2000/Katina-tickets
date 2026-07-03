@@ -46,6 +46,22 @@ function resolveCheckoutPath() {
   return '/v1/checkout/sessions';
 }
 
+function resolveCheckoutCandidates(baseUrl: string, checkoutPath: string) {
+  const normalizedBase = normalizeUrl(baseUrl);
+  const normalizedPath = checkoutPath.startsWith('/') ? checkoutPath : `/${checkoutPath}`;
+  const candidates = new Set<string>();
+
+  candidates.add(`${normalizedBase}${normalizedPath}`);
+
+  // Some environments are configured with /access/v2 in LENCO_API_BASE_URL while
+  // keeping /v1/... in LENCO_CHECKOUT_PATH. Try a path without /v1 as fallback.
+  if (normalizedBase.includes('/access/v2') && normalizedPath.startsWith('/v1/')) {
+    candidates.add(`${normalizedBase}${normalizedPath.replace('/v1/', '/')}`);
+  }
+
+  return Array.from(candidates);
+}
+
 function extractCheckoutUrl(payload: Record<string, unknown>): string | undefined {
   const candidates = [
     payload.checkoutUrl,
@@ -83,6 +99,38 @@ function extractProviderReference(payload: Record<string, unknown>): string | un
   return undefined;
 }
 
+function extractProviderErrorMessage(payload: Record<string, unknown>, statusCode: number) {
+  const directMessageCandidates = [
+    payload.message,
+    payload.error,
+    payload.detail,
+    payload.error_description,
+  ];
+
+  for (const candidate of directMessageCandidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+
+  if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+    const firstError = payload.errors[0];
+    if (typeof firstError === 'string' && firstError.trim().length > 0) {
+      return firstError;
+    }
+
+    if (typeof firstError === 'object' && firstError !== null) {
+      const errorRecord = firstError as Record<string, unknown>;
+      const nested = errorRecord.message || errorRecord.error || errorRecord.detail;
+      if (typeof nested === 'string' && nested.trim().length > 0) {
+        return nested;
+      }
+    }
+  }
+
+  return `Lenco checkout session failed with status ${statusCode}.`;
+}
+
 export function canUseLencoGateway() {
   return Boolean(lencoSecretKey());
 }
@@ -95,41 +143,58 @@ export async function createLencoCheckoutSession(input: LencoCreateCheckoutInput
 
   const appUrl = process.env.APP_URL ?? process.env.APP_ORIGIN;
   const callbackUrl = appUrl ? `${normalizeUrl(appUrl)}/payment/callback` : undefined;
+  const endpointCandidates = resolveCheckoutCandidates(lencoBaseUrl(), resolveCheckoutPath());
 
-  const response = await fetch(`${normalizeUrl(lencoBaseUrl())}${resolveCheckoutPath()}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${secretKey}`,
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      amount: input.amount,
-      currency: input.currency,
-      description: input.description,
-      reference: input.reference,
-      customer: {
-        email: input.customerEmail,
-        name: input.customerName,
+  let lastErrorMessage = 'Unable to create checkout session with Lenco.';
+
+  for (let index = 0; index < endpointCandidates.length; index += 1) {
+    const endpoint = endpointCandidates[index];
+    const isLastCandidate = index === endpointCandidates.length - 1;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${secretKey}`,
+        'x-api-key': secretKey,
+        Accept: 'application/json',
       },
-      metadata: input.metadata,
-      callbackUrl,
-    }),
-  });
+      body: JSON.stringify({
+        amount: input.amount,
+        currency: input.currency,
+        description: input.description,
+        reference: input.reference,
+        customer: {
+          email: input.customerEmail,
+          name: input.customerName,
+        },
+        metadata: input.metadata,
+        callbackUrl,
+      }),
+    });
 
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const message = typeof payload.message === 'string'
-      ? payload.message
-      : `Lenco checkout session failed with status ${response.status}.`;
-    throw new Error(message);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok) {
+      return {
+        providerReference: extractProviderReference(payload),
+        checkoutUrl: extractCheckoutUrl(payload),
+        status: typeof payload.status === 'string' ? payload.status : undefined,
+      };
+    }
+
+    lastErrorMessage = extractProviderErrorMessage(payload, response.status);
+
+    // For endpoint/path mismatches, continue to fallback candidates.
+    if (!isLastCandidate && (response.status === 404 || response.status === 405)) {
+      continue;
+    }
+
+    if (isLastCandidate || response.status !== 404) {
+      break;
+    }
   }
 
-  return {
-    providerReference: extractProviderReference(payload),
-    checkoutUrl: extractCheckoutUrl(payload),
-    status: typeof payload.status === 'string' ? payload.status : undefined,
-  };
+  throw new Error(lastErrorMessage);
 }
 
 export type NormalizedPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';

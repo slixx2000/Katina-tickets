@@ -2752,7 +2752,7 @@ app.get('/api/payments/:reference/ticket-pdf', ticketReadRateLimiter, async (req
 
 export { app };
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && process.env.VERCEL !== '1') {
   const startupValidation = validateStartupConfig();
   for (const warning of startupValidation.warnings) {
     logEvent('warn', 'startup.config.warning', { code: warning });

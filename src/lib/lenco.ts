@@ -41,9 +41,22 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
       };
     }
 
+    if (response.status === 404) {
+      return {
+        success: false,
+        statusCode: response.status,
+        message: 'Payment API route is not deployed. Please contact support to complete the server deployment.',
+      };
+    }
+
     const errorBody = await response.json().catch(() => null);
     if (errorBody?.message) {
       return { success: false, statusCode: response.status, message: errorBody.message };
+    }
+
+    const fallbackText = await response.text().catch(() => '');
+    if (fallbackText && fallbackText.trim().length > 0) {
+      return { success: false, statusCode: response.status, message: fallbackText.trim() };
     }
   } catch {
     return { success: false, message: 'Unable to reach payment service. Please retry shortly.' };

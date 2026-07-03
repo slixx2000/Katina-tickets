@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Lock, CreditCard, Wallet, Smartphone, ShieldCheck, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { ArrowRight, Lock, CreditCard, Wallet, ShieldCheck, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { TicketPackage, RegistrationData, PaymentData } from '../types';
 import { processLencoPayment } from '../lib/lenco';
 
@@ -19,7 +19,7 @@ type CheckoutOutcome = {
 type PendingPaymentSubmission = PaymentData;
 
 export default function SecureCheckout({ registrationData, selectedPackage, onSubmit }: SecureCheckoutProps) {
-  const [method, setMethod] = useState<'card' | 'applepay' | 'mobilemoney'>('card');
+  const [method, setMethod] = useState<'card' | 'mobilemoney'>('card');
   const [cardNumber, setCardNumber] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [securityCode, setSecurityCode] = useState('');
@@ -32,6 +32,18 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
 
   // Floating label active states
   const [activeInput, setActiveInput] = useState<string | null>(null);
+
+  const detectCardBrand = (value: string): 'VISA' | 'MASTERCARD' | 'AMEX' | 'DISCOVER' | 'UNKNOWN' => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length === 0) return 'UNKNOWN';
+    if (/^4/.test(digits)) return 'VISA';
+    if (/^(5[1-5]|2[2-7])/.test(digits)) return 'MASTERCARD';
+    if (/^3[47]/.test(digits)) return 'AMEX';
+    if (/^(6011|65|64[4-9])/.test(digits)) return 'DISCOVER';
+    return 'UNKNOWN';
+  };
+
+  const cardBrand = detectCardBrand(cardNumber);
 
   const summaryImage = "https://lh3.googleusercontent.com/aida-public/AB6AXuCcE9FAo1MJoh4XwfSz8KA49uwsJr9_4R6fzRpOx57j02tFKBEwA0fB-ot5u--K3PcJmawS26p-hjZaTbVGxlzi774LZvmvHKDEeXFrt-A0ajj2aYDyJA-cp7-S0URf8lERPhzu6tlJGGeJuiZHBWrSveeDU5dl9eBs8O4N-jCsmUdHNXVWDXi5Qx7czz55ctFjXiZuVOHO9i9uxxHu7GVUI4ti5KjMimaXM8IhlIZ79RsnokVTcdTVCYRDIY0_IZImXcfjruv45L71";
 
@@ -337,7 +349,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
             <span className="font-label-caps text-[10px] text-[color:var(--checkout-text)]/75 uppercase tracking-widest leading-none font-bold">
               Payment Method
             </span>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               
               {/* Method: Credit Card */}
               <button
@@ -360,26 +372,6 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
                 )}
               </button>
 
-              {/* Method: Apple Pay */}
-              <button
-                type="button"
-                onClick={() => setMethod('applepay')}
-                className={`relative flex flex-col items-center justify-center gap-2.5 py-4 border rounded-none transition-all duration-300 cursor-pointer ${
-                  method === 'applepay'
-                    ? 'border-[color:var(--checkout-text)] bg-[color:var(--checkout-text)]/10 text-[color:var(--checkout-text)]'
-                    : 'border-[color:var(--checkout-border)] hover:border-[color:var(--checkout-text)]/50 bg-transparent text-[color:var(--checkout-text)]/70 hover:text-[color:var(--checkout-text)]'
-                }`}
-              >
-                <Wallet className={`w-5 h-5 ${method === 'applepay' ? 'text-[color:var(--checkout-text)]' : ''}`} />
-                <span className={`font-label-caps text-[9px] tracking-widest ${method === 'applepay' ? 'text-[color:var(--checkout-text)] font-bold' : ''}`}>
-                  Apple Pay
-                </span>
-
-                {method === 'applepay' && (
-                  <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-[color:var(--checkout-text)] rounded-full shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
-                )}
-              </button>
-
               {/* Method: Mobile Money */}
               <button
                 type="button"
@@ -390,7 +382,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
                     : 'border-[color:var(--checkout-border)] hover:border-[color:var(--checkout-text)]/50 bg-transparent text-[color:var(--checkout-text)]/70 hover:text-[color:var(--checkout-text)]'
                 }`}
               >
-                <Smartphone className={`w-5 h-5 ${method === 'mobilemoney' ? 'text-[color:var(--checkout-text)]' : ''}`} />
+                <Wallet className={`w-5 h-5 ${method === 'mobilemoney' ? 'text-[color:var(--checkout-text)]' : ''}`} />
                 <span className={`font-label-caps text-[9px] tracking-widest ${method === 'mobilemoney' ? 'text-[color:var(--checkout-text)] font-bold' : ''}`}>
                   Mobile Money
                 </span>
@@ -431,7 +423,14 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
                   >
                     Card Number
                   </label>
-                  <Lock className="absolute right-0 top-6 w-4 h-4 text-[color:var(--checkout-text)]/50 pointer-events-none" />
+                  <div className="absolute right-0 top-[18px] flex items-center gap-2 pointer-events-none">
+                    {cardBrand !== 'UNKNOWN' && (
+                      <span className="border border-[color:var(--checkout-border)] bg-[#F4F4F2]/10 px-1.5 py-0.5 text-[9px] tracking-[0.08em] font-label-caps text-[color:var(--checkout-text)]">
+                        {cardBrand}
+                      </span>
+                    )}
+                    <Lock className="w-4 h-4 text-[color:var(--checkout-text)]/50" />
+                  </div>
                 </div>
 
                 {/* Expiry and CVC Grid */}
@@ -515,7 +514,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
             ) : (
               <div className="bg-[#F4F4F2]/5 border border-[color:var(--checkout-border)] p-6 text-center rounded-none my-4 font-sans max-w-lg">
                 <p className="text-sm text-[color:var(--checkout-text)] mb-3 leading-relaxed">
-                  You are checking out using <strong>{method === 'applepay' ? 'Apple Pay' : 'Mobile Money'}</strong>.
+                  You are checking out using <strong>Mobile Money</strong>.
                 </p>
                 <p className="text-xs text-[color:var(--checkout-text)]/60">
                   Transactions are authorized using secure device hardware biometric chips.
