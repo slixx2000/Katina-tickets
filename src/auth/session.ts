@@ -1,4 +1,4 @@
-import { MFA_RECOMMENDED_ROLES, canAccessAdminArea, normalizeAppRole, type AppRole } from './rbac';
+import { canAccessAdminArea, normalizeAppRole, type AppRole } from './rbac';
 
 export type SupabaseSessionUserLike = {
   id: string;
@@ -90,15 +90,7 @@ export function toAppSessionUser(user: SupabaseSessionUserLike | null | undefine
 }
 
 export function canEnterAdminConsole(user: AppSessionUser | null | undefined): boolean {
-  if (!user || !canAccessAdminArea(user.role)) {
-    return false;
-  }
-
-  if (MFA_RECOMMENDED_ROLES.includes(user.role) && !user.mfaEnabled) {
-    return false;
-  }
-
-  return true;
+  return !!user && canAccessAdminArea(user.role);
 }
 
 export async function fetchServerSession(): Promise<AppSessionUser | null> {

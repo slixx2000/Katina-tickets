@@ -1526,9 +1526,9 @@ app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(
       (clerkUser.privateMetadata?.role as unknown) ??
       (clerkUser.unsafeMetadata?.role as unknown);
     const requestedRole = normalizeAppRole(metadataRole, 'CUSTOMER');
-    const role = isAdminConsoleRole(requestedRole) && !isAllowlistedAdmin
-      ? 'CUSTOMER'
-      : requestedRole;
+    const role = isAllowlistedAdmin
+      ? (isAdminConsoleRole(requestedRole) ? requestedRole : 'SUPER_ADMIN')
+      : (isAdminConsoleRole(requestedRole) ? 'CUSTOMER' : requestedRole);
     const clerkMfaEnabled =
       (clerkUser.publicMetadata?.mfaEnabled as unknown) === true ||
       (clerkUser as unknown as { twoFactorEnabled?: boolean }).twoFactorEnabled === true ||
