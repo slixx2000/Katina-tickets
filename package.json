@@ -23,6 +23,7 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@clerk/backend": "^3.10.0",
     "@clerk/react": "^6.7.2",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.106.1",

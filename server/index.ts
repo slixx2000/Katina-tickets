@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import 'dotenv/config';
 import express, {type Request, type Response} from 'express';
 import type { Prisma } from '@prisma/client';
+import { createClerkClient, verifyToken } from '@clerk/backend';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
 import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies.js';
@@ -43,6 +44,10 @@ type RequestWithRawBody = Request & {
 type AuthExchangeRequest = {
   accessToken?: unknown;
   mfaCode?: unknown;
+};
+
+type ClerkExchangeRequest = {
+  clerkToken?: unknown;
 };
 
 type AuthRefreshRequest = {
@@ -1391,6 +1396,89 @@ app.post('/api/session-auth/exchange', authRateLimiter, createOriginGuard(allowe
     expiresAt: bundle.expiresAt.toISOString(),
     refreshExpiresAt: bundle.refreshExpiresAt.toISOString(),
   });
+});
+
+app.post('/api/session-auth/clerk-exchange', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+  const body = request.body as ClerkExchangeRequest;
+  const clerkToken = typeof body?.clerkToken === 'string' ? body.clerkToken.trim() : '';
+  if (!clerkToken) {
+    response.status(400).json({ success: false, message: 'A Clerk token is required.' });
+    return;
+  }
+
+  const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+  if (!isNonEmptyString(clerkSecretKey)) {
+    response.status(503).json({ success: false, message: 'Clerk server authentication is not configured.' });
+    return;
+  }
+
+  try {
+    const claims = await verifyToken(clerkToken, { secretKey: clerkSecretKey });
+    const clerkUserId = typeof claims.sub === 'string' ? claims.sub : null;
+    if (!clerkUserId) {
+      response.status(401).json({ success: false, message: 'Invalid Clerk token.' });
+      return;
+    }
+
+    const clerkClient = createClerkClient({ secretKey: clerkSecretKey });
+    const clerkUser = await clerkClient.users.getUser(clerkUserId);
+    const primaryEmail = clerkUser.emailAddresses.find((email) => email.id === clerkUser.primaryEmailAddressId)?.emailAddress
+      ?? clerkUser.emailAddresses[0]?.emailAddress;
+
+    if (!isNonEmptyString(primaryEmail)) {
+      response.status(400).json({ success: false, message: 'Clerk account is missing a primary email address.' });
+      return;
+    }
+
+    const metadataRole =
+      (clerkUser.publicMetadata?.role as unknown) ??
+      (clerkUser.privateMetadata?.role as unknown) ??
+      (clerkUser.unsafeMetadata?.role as unknown);
+    const role = normalizeAppRole(metadataRole, 'CUSTOMER');
+    const mfaEnabled = (clerkUser.publicMetadata?.mfaEnabled as unknown) === true;
+
+    const user = await authRepository.upsertUserFromOAuth({
+      id: clerkUser.id,
+      email: primaryEmail,
+      role,
+      mfaEnabled,
+    });
+
+    const principal: AuthPrincipal = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      mfaEnabled: user.mfaEnabled,
+    };
+
+    const bundle = await sessionStore.createSession(principal);
+    setAuthCookies(response, bundle.accessToken, bundle.refreshToken, bundle.expiresAt, bundle.refreshExpiresAt);
+    await emitAuditEvent({
+      name: 'LOGIN_SUCCESS',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      metadata: { role: principal.role, provider: 'clerk' },
+      request,
+    });
+
+    response.json({
+      success: true,
+      authenticated: true,
+      user: principal,
+      expiresAt: bundle.expiresAt.toISOString(),
+      refreshExpiresAt: bundle.refreshExpiresAt.toISOString(),
+    });
+  } catch (error) {
+    await emitAuditEvent({
+      name: 'LOGIN_FAILED',
+      metadata: {
+        reason: error instanceof Error ? error.message : String(error),
+        provider: 'clerk',
+      },
+      request,
+    });
+    response.status(401).json({ success: false, message: 'Unable to verify Clerk session.' });
+  }
 });
 
 app.post('/api/session-auth/logout', authRateLimiter, async (request: Request, response: Response) => {

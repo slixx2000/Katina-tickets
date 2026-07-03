@@ -3,7 +3,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useUser } from '@clerk/react';
+import { useAuth } from '@clerk/react';
 
 // Core Components Imports
 import Header from './components/Header';
@@ -121,7 +121,7 @@ const INITIAL_STATS: AdminStats = {
 };
 
 export default function App() {
-  const { isSignedIn: isClerkSignedIn, user: clerkUser } = useUser();
+  const { isLoaded: isClerkAuthLoaded, isSignedIn: isClerkSignedIn, getToken } = useAuth();
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('landing');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<AppSessionUser | null>(null);
@@ -134,7 +134,7 @@ export default function App() {
   const [registrationData, setRegistrationData] = useState<RegistrationData | null>(null);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats>(INITIAL_STATS);
-  const hasAuthenticatedCustomer = Boolean(currentUser) || Boolean(isClerkSignedIn);
+  const hasAuthenticatedCustomer = Boolean(currentUser);
   const isAdminVisible = canEnterAdminConsole(currentUser);
   const areTicketsSoldOut = packages.every((pkg) => pkg.remaining <= 0);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -206,6 +206,32 @@ export default function App() {
     return await fetchServerSession();
   };
 
+  const exchangeClerkSession = async (): Promise<AppSessionUser | null> => {
+    if (!isClerkSignedIn) {
+      return null;
+    }
+
+    const clerkToken = await getToken();
+    if (!clerkToken) {
+      return null;
+    }
+
+    const exchangeResponse = await fetch('/api/session-auth/clerk-exchange', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ clerkToken }),
+    });
+
+    if (!exchangeResponse.ok) {
+      return null;
+    }
+
+    return await fetchServerSession();
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -214,6 +240,10 @@ export default function App() {
 
       if (!user) {
         user = await exchangeSupabaseSession();
+      }
+
+      if (!user && isClerkAuthLoaded && isClerkSignedIn) {
+        user = await exchangeClerkSession();
       }
 
       if (mounted) {
@@ -265,38 +295,16 @@ export default function App() {
     return () => {
       mounted = false;
     };
-  }, []);
-
-  useEffect(() => {
-    if (!isClerkSignedIn || !clerkUser || currentUser) {
-      return;
-    }
-
-    const primaryEmail =
-      clerkUser.primaryEmailAddress?.emailAddress ||
-      clerkUser.emailAddresses[0]?.emailAddress ||
-      '';
-
-    if (!primaryEmail) {
-      return;
-    }
-
-    // Bridge Clerk-only sessions into the app's existing auth shape.
-    setCurrentUser({
-      id: clerkUser.id,
-      email: primaryEmail,
-      role: 'CUSTOMER',
-      mfaEnabled: false,
-    });
-  }, [isClerkSignedIn, clerkUser, currentUser]);
+  }, [isClerkAuthLoaded, isClerkSignedIn, getToken]);
 
   useEffect(() => {
     if (isClerkSignedIn) {
       return;
     }
 
-    // Keep Supabase-backed admin sessions intact, but clear Clerk-bridged customer session data.
+    // Keep Supabase-backed admin sessions intact, but terminate customer server session when Clerk signs out.
     if (currentUser?.role === 'CUSTOMER') {
+      void clearServerSession();
       setCurrentUser(null);
     }
   }, [isClerkSignedIn, currentUser]);
