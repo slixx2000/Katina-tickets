@@ -94,7 +94,7 @@ export function canEnterAdminConsole(user: AppSessionUser | null | undefined): b
 }
 
 export async function fetchServerSession(): Promise<AppSessionUser | null> {
-  const response = await fetch('/api/auth/session', {
+  const response = await fetch('/api/session-auth/session', {
     credentials: 'include',
     headers: {
       Accept: 'application/json',
@@ -110,7 +110,7 @@ export async function fetchServerSession(): Promise<AppSessionUser | null> {
 }
 
 export async function refreshServerSession(): Promise<AppSessionUser | null> {
-  const response = await fetch('/api/auth/refresh', {
+  const response = await fetch('/api/session-auth/refresh', {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -128,7 +128,7 @@ export async function refreshServerSession(): Promise<AppSessionUser | null> {
 }
 
 export async function clearServerSession(): Promise<void> {
-  await fetch('/api/auth/logout', {
+  await fetch('/api/session-auth/logout', {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -147,7 +147,7 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export async function fetchMfaStatus(): Promise<MfaStatusResponse> {
-  const response = await fetch('/api/auth/mfa/status', {
+  const response = await fetch('/api/session-auth/mfa/status', {
     credentials: 'include',
     headers: {
       Accept: 'application/json',
@@ -158,7 +158,7 @@ export async function fetchMfaStatus(): Promise<MfaStatusResponse> {
 }
 
 export async function enrollMfa(label?: string): Promise<MfaEnrollResponse> {
-  const response = await fetch('/api/auth/mfa/enroll', {
+  const response = await fetch('/api/session-auth/mfa/enroll', {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -172,7 +172,7 @@ export async function enrollMfa(label?: string): Promise<MfaEnrollResponse> {
 }
 
 export async function activateMfa(factorId: string, code: string): Promise<MfaActivateResponse> {
-  const response = await fetch('/api/auth/mfa/activate', {
+  const response = await fetch('/api/session-auth/mfa/activate', {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -186,7 +186,7 @@ export async function activateMfa(factorId: string, code: string): Promise<MfaAc
 }
 
 export async function disableMfa(code: string): Promise<void> {
-  const response = await fetch('/api/auth/mfa/disable', {
+  const response = await fetch('/api/session-auth/mfa/disable', {
     method: 'POST',
     credentials: 'include',
     headers: {

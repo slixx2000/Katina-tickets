@@ -42,7 +42,7 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
         throw new Error('Signed in, but no server session could be created.');
       }
 
-      const exchangeResponse = await fetch('/api/auth/exchange', {
+      const exchangeResponse = await fetch('/api/session-auth/exchange', {
         method: 'POST',
         credentials: 'include',
         headers: {

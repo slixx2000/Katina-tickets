@@ -189,7 +189,7 @@ export default function App() {
       return null;
     }
 
-    const exchangeResponse = await fetch('/api/auth/exchange', {
+    const exchangeResponse = await fetch('/api/session-auth/exchange', {
       method: 'POST',
       credentials: 'include',
       headers: {

@@ -1253,7 +1253,7 @@ app.get('/api/inventory', async (_request: Request, response: Response) => {
   response.json({ success: true, items });
 });
 
-app.get('/api/auth/session', async (request: Request, response: Response) => {
+app.get('/api/session-auth/session', async (request: Request, response: Response) => {
   const token = getAuthCookieValue(request, sessionCookieName);
   if (!token) {
     response.json({ authenticated: false, user: null });
@@ -1269,7 +1269,7 @@ app.get('/api/auth/session', async (request: Request, response: Response) => {
   response.json(buildSessionPayload(session));
 });
 
-app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+app.post('/api/session-auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const body = request.body as AuthExchangeRequest;
   const accessToken = typeof body?.accessToken === 'string' ? body.accessToken : null;
   const providedMfaCode = normalizeMfaCode(body?.mfaCode);
@@ -1393,7 +1393,7 @@ app.post('/api/auth/exchange', authRateLimiter, createOriginGuard(allowedOrigins
   });
 });
 
-app.post('/api/auth/logout', authRateLimiter, async (request: Request, response: Response) => {
+app.post('/api/session-auth/logout', authRateLimiter, async (request: Request, response: Response) => {
   const token = getAuthCookieValue(request, sessionCookieName);
   if (token) {
     const session = await sessionStore.getSessionByAccessToken(token);
@@ -1413,7 +1413,7 @@ app.post('/api/auth/logout', authRateLimiter, async (request: Request, response:
   response.json({ success: true });
 });
 
-app.post('/api/auth/refresh', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+app.post('/api/session-auth/refresh', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const body = request.body as AuthRefreshRequest;
   const refreshToken = typeof body?.refreshToken === 'string'
     ? body.refreshToken
@@ -1440,7 +1440,7 @@ app.post('/api/auth/refresh', authRateLimiter, createOriginGuard(allowedOrigins)
   });
 });
 
-app.post('/api/auth/mfa/enroll', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+app.post('/api/session-auth/mfa/enroll', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -1510,7 +1510,7 @@ app.post('/api/auth/mfa/enroll', authRateLimiter, createOriginGuard(allowedOrigi
   });
 });
 
-app.post('/api/auth/mfa/activate', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+app.post('/api/session-auth/mfa/activate', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -1622,7 +1622,7 @@ app.post('/api/auth/mfa/activate', authRateLimiter, createOriginGuard(allowedOri
   });
 });
 
-app.post('/api/auth/mfa/disable', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
+app.post('/api/session-auth/mfa/disable', authRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
@@ -1684,7 +1684,7 @@ app.post('/api/auth/mfa/disable', authRateLimiter, createOriginGuard(allowedOrig
   response.json({ success: true, message: 'MFA has been disabled for this account.' });
 });
 
-app.get('/api/auth/mfa/status', async (request: Request, response: Response) => {
+app.get('/api/session-auth/mfa/status', async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });

@@ -19,7 +19,7 @@ beforeAll(async () => {
 describe('API integration', () => {
   it('exchanges a dev access token into server session cookies', async () => {
     const response = await request(app)
-      .post('/api/auth/exchange')
+      .post('/api/session-auth/exchange')
       .set('Origin', 'http://localhost:3000')
       .set('Referer', 'http://localhost:3000/admin')
       .send({ accessToken: 'dev-session:admin@example.com:SUPER_ADMIN' });
@@ -79,7 +79,7 @@ describe('API integration', () => {
 
   it('accepts authenticated customer payment attempts (provider may still reject)', async () => {
     const sessionResponse = await request(app)
-      .post('/api/auth/exchange')
+      .post('/api/session-auth/exchange')
       .set('Origin', 'http://localhost:3000')
       .set('Referer', 'http://localhost:3000')
       .send({ accessToken: 'dev-session:customer@example.com:CUSTOMER' });
@@ -106,7 +106,7 @@ describe('API integration', () => {
 
   it('rate limits repeated payment attempts from the same session', async () => {
     const sessionResponse = await request(app)
-      .post('/api/auth/exchange')
+      .post('/api/session-auth/exchange')
       .set('Origin', 'http://localhost:3000')
       .set('Referer', 'http://localhost:3000')
       .send({ accessToken: 'dev-session:ratelimit@example.com:CUSTOMER' });
@@ -162,7 +162,7 @@ describe('API integration', () => {
 
   it('returns ticket list payload for authenticated customers', async () => {
     const sessionResponse = await request(app)
-      .post('/api/auth/exchange')
+      .post('/api/session-auth/exchange')
       .set('Origin', 'http://localhost:3000')
       .set('Referer', 'http://localhost:3000')
       .send({ accessToken: 'dev-session:customer2@example.com:CUSTOMER' });
