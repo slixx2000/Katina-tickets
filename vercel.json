@@ -1,7 +1,6 @@
 {
   "functions": {
     "api/[...all].ts": {
-      "runtime": "@vercel/node@5.3.20",
       "includeFiles": "{server/**,shared/**,prisma/**}"
     }
   }
