@@ -37,6 +37,15 @@ function normalizeUrl(url: string) {
   return url.replace(/\/+$/, '');
 }
 
+function stripPathFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return url;
+  }
+}
+
 function resolveCheckoutPath() {
   const fromEnv = process.env.LENCO_CHECKOUT_PATH;
   if (fromEnv && fromEnv.trim().length > 0) {
@@ -49,14 +58,30 @@ function resolveCheckoutPath() {
 function resolveCheckoutCandidates(baseUrl: string, checkoutPath: string) {
   const normalizedBase = normalizeUrl(baseUrl);
   const normalizedPath = checkoutPath.startsWith('/') ? checkoutPath : `/${checkoutPath}`;
+  const originOnlyBase = normalizeUrl(stripPathFromUrl(normalizedBase));
   const candidates = new Set<string>();
 
   candidates.add(`${normalizedBase}${normalizedPath}`);
+
+  // If the configured base includes an API path segment (for example /access/v2),
+  // also try the host-origin + checkout path variant.
+  if (originOnlyBase !== normalizedBase) {
+    candidates.add(`${originOnlyBase}${normalizedPath}`);
+  }
 
   // Some environments are configured with /access/v2 in LENCO_API_BASE_URL while
   // keeping /v1/... in LENCO_CHECKOUT_PATH. Try a path without /v1 as fallback.
   if (normalizedBase.includes('/access/v2') && normalizedPath.startsWith('/v1/')) {
     candidates.add(`${normalizedBase}${normalizedPath.replace('/v1/', '/')}`);
+
+    // Also try host-origin variants for both /v1/... and /... paths.
+    candidates.add(`${originOnlyBase}${normalizedPath}`);
+    candidates.add(`${originOnlyBase}${normalizedPath.replace('/v1/', '/')}`);
+  }
+
+  if (normalizedPath === '/v1/checkout/sessions') {
+    candidates.add(`${originOnlyBase}/checkout/sessions`);
+    candidates.add(`${normalizedBase}/checkout/sessions`);
   }
 
   return Array.from(candidates);
@@ -146,10 +171,13 @@ export async function createLencoCheckoutSession(input: LencoCreateCheckoutInput
   const endpointCandidates = resolveCheckoutCandidates(lencoBaseUrl(), resolveCheckoutPath());
 
   let lastErrorMessage = 'Unable to create checkout session with Lenco.';
+  let lastErrorStatusCode: number | null = null;
+  let lastAttemptedEndpoint: string | null = null;
 
   for (let index = 0; index < endpointCandidates.length; index += 1) {
     const endpoint = endpointCandidates[index];
     const isLastCandidate = index === endpointCandidates.length - 1;
+    lastAttemptedEndpoint = endpoint;
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -182,6 +210,7 @@ export async function createLencoCheckoutSession(input: LencoCreateCheckoutInput
       };
     }
 
+    lastErrorStatusCode = response.status;
     lastErrorMessage = extractProviderErrorMessage(payload, response.status);
 
     // For endpoint/path mismatches, continue to fallback candidates.
@@ -194,7 +223,12 @@ export async function createLencoCheckoutSession(input: LencoCreateCheckoutInput
     }
   }
 
-  throw new Error(lastErrorMessage);
+  const diagnostics = [
+    `endpoint=${lastAttemptedEndpoint ?? 'unknown'}`,
+    `status=${lastErrorStatusCode ?? 'unknown'}`,
+  ].join(' ');
+
+  throw new Error(`${lastErrorMessage} (${diagnostics})`);
 }
 
 export type NormalizedPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';
