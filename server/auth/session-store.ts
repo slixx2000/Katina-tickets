@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { type AppRole, normalizeAppRole } from '../../shared/auth/roles';
+import { type AppRole, normalizeAppRole } from '../../shared/auth/roles.js';
 
 export type AuthPrincipal = {
   userId: string;

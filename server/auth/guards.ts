@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
-import { hasRole, type AppRole } from '../../shared/auth/roles';
-import type { SessionPrincipal } from './repository';
+import { hasRole, type AppRole } from '../../shared/auth/roles.js';
+import type { SessionPrincipal } from './repository.js';
 
 export type AuthenticatedRequest = Request & {
   auth?: SessionPrincipal;

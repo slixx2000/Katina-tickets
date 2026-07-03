@@ -4,19 +4,19 @@ import express, {type Request, type Response} from 'express';
 import type { Prisma } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
-import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies';
-import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index';
-import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit';
-import { InMemorySessionStore, type AuthPrincipal } from './auth/session-store';
-import type { SessionStore } from './auth/session-store';
-import { InMemoryAuthRepository } from './auth/repository';
-import type { AuthRepository } from './auth/repository';
-import { verifySupabaseAccessToken } from './auth/supabase';
-import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared/auth/roles';
-import { isPrismaAvailable, prisma } from './lib/prisma';
-import { PrismaSessionStore } from './auth/prisma-session-store';
-import { PrismaAuthRepository } from './auth/prisma-repository';
-import { canUseLencoGateway, createLencoCheckoutSession, parseLencoWebhookEvent } from './lib/lenco';
+import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies.js';
+import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index.js';
+import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit.js';
+import { InMemorySessionStore, type AuthPrincipal } from './auth/session-store.js';
+import type { SessionStore } from './auth/session-store.js';
+import { InMemoryAuthRepository } from './auth/repository.js';
+import type { AuthRepository } from './auth/repository.js';
+import { verifySupabaseAccessToken } from './auth/supabase.js';
+import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared/auth/roles.js';
+import { isPrismaAvailable, prisma } from './lib/prisma.js';
+import { PrismaSessionStore } from './auth/prisma-session-store.js';
+import { PrismaAuthRepository } from './auth/prisma-repository.js';
+import { canUseLencoGateway, createLencoCheckoutSession, parseLencoWebhookEvent } from './lib/lenco.js';
 import {
   buildOtpAuthUri,
   decryptMfaSecret,
@@ -25,7 +25,7 @@ import {
   generateTotpSecret,
   hashRecoveryCode,
   verifyTotpCode,
-} from './auth/mfa';
+} from './auth/mfa.js';
 
 type LencoPaymentRequest = {
   amount?: unknown;

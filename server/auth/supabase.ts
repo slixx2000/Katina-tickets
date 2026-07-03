@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { normalizeAppRole, type AppRole } from '../../shared/auth/roles';
+import { normalizeAppRole, type AppRole } from '../../shared/auth/roles.js';
 
 export type SupabaseVerifiedUser = {
   id: string;

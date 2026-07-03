@@ -6,7 +6,7 @@ import {
   hasRole,
   normalizeAppRole,
   type AppRole,
-} from '../../shared/auth/roles';
+} from '../../shared/auth/roles.js';
 
 export type AuthPrincipal = {
   userId: string;

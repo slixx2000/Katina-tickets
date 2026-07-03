@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { normalizeAppRole, type AppRole } from '../../shared/auth/roles';
-import type { AuditLogRecord, AuthRepository, AuthUserRecord } from './repository';
+import { normalizeAppRole, type AppRole } from '../../shared/auth/roles.js';
+import type { AuditLogRecord, AuthRepository, AuthUserRecord } from './repository.js';
 
 const VALID_AUDIT_ACTIONS = new Set([
   'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT',

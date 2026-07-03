@@ -1,13 +1,13 @@
 import crypto from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { normalizeAppRole, type AppRole } from '../../shared/auth/roles';
+import { normalizeAppRole, type AppRole } from '../../shared/auth/roles.js';
 import type {
   AuthPrincipal,
   CreateSessionOptions,
   SessionBundle,
   SessionLookup,
   SessionStore,
-} from './session-store';
+} from './session-store.js';
 
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 8;
 const DEFAULT_REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 30;
