@@ -67,6 +67,7 @@ export class PrismaAuthRepository implements AuthRepository {
       },
       update: {
         email: input.email.toLowerCase(),
+        role: input.role,
         mfaEnabled: input.mfaEnabled,
         lastLoginAt: new Date(),
       },
