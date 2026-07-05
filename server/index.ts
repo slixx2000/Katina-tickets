@@ -135,6 +135,33 @@ function logEvent(level: LogLevel, event: string, data: Record<string, unknown> 
   console.log(message);
 }
 
+function resolveRequestId(request?: Request) {
+  return request?.header('x-request-id')
+    || request?.header('x-correlation-id')
+    || request?.header('x-amzn-trace-id')
+    || undefined;
+}
+
+function logStructuredEvent(level: LogLevel, prefix: string, route: string, step: string, data: Record<string, unknown> = {}) {
+  logEvent(level, `${prefix} ${step}`, {
+    route,
+    prefix,
+    step,
+    ...data,
+  });
+}
+
+function logPaymentError(prefix: string, route: string, step: string, error: unknown, data: Record<string, unknown> = {}) {
+  const message = error instanceof Error ? error.message : String(error);
+  const stackTrace = error instanceof Error ? error.stack : undefined;
+
+  logStructuredEvent('error', prefix, route, step, {
+    errorMessage: message,
+    stackTrace,
+    ...data,
+  });
+}
+
 function hasValue(value: string | undefined) {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -1371,10 +1398,18 @@ async function finalizeReservationForPaidPayment(reference: string) {
     return false;
   }
 
+  logStructuredEvent('info', '[TICKET]', 'server.finalizeReservationForPaidPayment', 'reservation.finalization.started', {
+    paymentReference: reference,
+  });
+
   const event = await ensureDefaultEvent();
   if (!event) {
     return false;
   }
+
+  logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'query.payment.transaction.started', {
+    paymentReference: reference,
+  });
 
   const payment = await prisma.paymentTransaction.findUnique({
     where: { reference },
@@ -1388,9 +1423,26 @@ async function finalizeReservationForPaidPayment(reference: string) {
     },
   });
 
-  if (!payment || payment.status !== 'PAID') {
+  if (!payment) {
+    logStructuredEvent('warn', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'query.payment.transaction.not.found', {
+      paymentReference: reference,
+    });
     return false;
   }
+
+  if (payment.status !== 'PAID') {
+    logStructuredEvent('warn', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'payment.status.not.paid', {
+      paymentReference: reference,
+      paymentStatus: payment.status,
+    });
+    return false;
+  }
+
+  logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'query.payment.transaction.succeeded', {
+    paymentReference: reference,
+    userId: payment.userId,
+    paymentStatus: payment.status,
+  });
 
   const metadata = (payment.metadata ?? {}) as Record<string, unknown>;
   const ticketType = parseTicketType(metadata.ticketType);
@@ -1400,9 +1452,22 @@ async function finalizeReservationForPaidPayment(reference: string) {
   }
 
   try {
+    logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'reservation.transaction.started', {
+      paymentReference: reference,
+      ticketType,
+      quantity,
+    });
+
     await prisma.$transaction(async (tx) => {
+      logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'query.payment.reservation.started', {
+        paymentReference: reference,
+      });
       const existing = await tx.paymentReservation.findUnique({ where: { paymentReference: reference } });
       if (existing) {
+        logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'query.payment.reservation.succeeded', {
+          paymentReference: reference,
+          orderId: existing.id,
+        });
         await createTicketsForReservation(tx, {
           reservationId: existing.id,
           eventId: event.id,
@@ -1424,6 +1489,12 @@ async function finalizeReservationForPaidPayment(reference: string) {
         },
       });
 
+      logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'inventory.update.succeeded', {
+        paymentReference: reference,
+        ticketType,
+        rowsAffected: inventoryResult.count,
+      });
+
       if (inventoryResult.count === 0) {
         throw new Error('INSUFFICIENT_INVENTORY');
       }
@@ -1440,6 +1511,13 @@ async function finalizeReservationForPaidPayment(reference: string) {
         },
       });
 
+      logStructuredEvent('info', '[DATABASE]', 'server.finalizeReservationForPaidPayment', 'reservation.created', {
+        paymentReference: reference,
+        orderId: reservation.id,
+        ticketType,
+        quantity: reservation.quantity,
+      });
+
       await createTicketsForReservation(tx, {
         reservationId: reservation.id,
         eventId: event.id,
@@ -1451,8 +1529,15 @@ async function finalizeReservationForPaidPayment(reference: string) {
     }, {
       isolationLevel: 'Serializable',
     });
+
+    logStructuredEvent('info', '[TICKET]', 'server.finalizeReservationForPaidPayment', 'reservation.finalization.succeeded', {
+      paymentReference: reference,
+    });
     return true;
-  } catch {
+  } catch (error) {
+    logPaymentError('[TICKET]', 'server.finalizeReservationForPaidPayment', 'reservation.finalization.failed', error, {
+      paymentReference: reference,
+    });
     return false;
   }
 }
@@ -1461,6 +1546,10 @@ async function queueTicketDeliveryAfterPersistence(reference: string) {
   if (!isPrismaAvailable()) {
     return false;
   }
+
+  logStructuredEvent('info', '[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'ticket.delivery.check.started', {
+    paymentReference: reference,
+  });
 
   const reservation = await prisma.paymentReservation.findUnique({
     where: { paymentReference: reference },
@@ -1477,8 +1566,8 @@ async function queueTicketDeliveryAfterPersistence(reference: string) {
   });
 
   if (!reservation || reservation.tickets.length < reservation.quantity) {
-    logEvent('warn', 'ticket.delivery.skipped.persistence-incomplete', {
-      reference,
+    logStructuredEvent('warn', '[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'ticket.delivery.skipped.persistence.incomplete', {
+      paymentReference: reference,
       reservationFound: Boolean(reservation),
       expectedTicketCount: reservation?.quantity ?? null,
       actualTicketCount: reservation?.tickets.length ?? null,
@@ -1486,9 +1575,8 @@ async function queueTicketDeliveryAfterPersistence(reference: string) {
     return false;
   }
 
-  // Delivery integration point: this executes only after reservation + ticket persistence has been verified.
-  logEvent('info', 'ticket.delivery.ready', {
-    reference,
+  logStructuredEvent('info', '[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'ticket.delivery.ready', {
+    paymentReference: reference,
     email: reservation.email,
     ticketCount: reservation.tickets.length,
     providerConfigured: hasValue(process.env.TICKET_DELIVERY_PROVIDER),
@@ -1511,19 +1599,42 @@ async function persistPaymentIntent(input: {
     return;
   }
 
-  await prisma.paymentTransaction.create({
-    data: {
-      reference: input.reference,
-      amount: Math.round(input.amount),
-      currency: input.currency,
-      description: input.description,
-      customerEmail: input.customerEmail,
-      customerName: input.customerName,
-      userId: input.userId,
-      status: 'PENDING',
-      metadata: toPrismaJson(input.metadata),
-    },
+  logStructuredEvent('info', '[DATABASE]', 'server.persistPaymentIntent', 'create.payment.transaction.started', {
+    paymentReference: input.reference,
+    userId: input.userId,
+    amount: input.amount,
+    currency: input.currency,
+    description: input.description,
   });
+
+  try {
+    await prisma.paymentTransaction.create({
+      data: {
+        reference: input.reference,
+        amount: Math.round(input.amount),
+        currency: input.currency,
+        description: input.description,
+        customerEmail: input.customerEmail,
+        customerName: input.customerName,
+        userId: input.userId,
+        status: 'PENDING',
+        metadata: toPrismaJson(input.metadata),
+      },
+    });
+
+    logStructuredEvent('info', '[DATABASE]', 'server.persistPaymentIntent', 'create.payment.transaction.succeeded', {
+      paymentReference: input.reference,
+      userId: input.userId,
+      paymentStatus: 'PENDING',
+      rowsAffected: 1,
+    });
+  } catch (error) {
+    logPaymentError('[DATABASE]', 'server.persistPaymentIntent', 'create.payment.transaction.failed', error, {
+      paymentReference: input.reference,
+      userId: input.userId,
+    });
+    throw error;
+  }
 }
 
 async function updatePaymentIntentFromWebhook(input: {
@@ -1536,19 +1647,41 @@ async function updatePaymentIntentFromWebhook(input: {
   }
 
   const now = new Date();
-  const result = await prisma.paymentTransaction.updateMany({
-    where: { reference: input.reference },
-    data: {
-      providerPaymentId: input.providerPaymentId,
-      status: input.status,
-      paidAt: input.status === 'PAID' ? now : undefined,
-      failedAt: input.status === 'FAILED' ? now : undefined,
-      cancelledAt: input.status === 'CANCELLED' ? now : undefined,
-      refundedAt: input.status === 'REFUNDED' ? now : undefined,
-    },
+  logStructuredEvent('info', '[DATABASE]', 'server.updatePaymentIntentFromWebhook', 'update.payment.transaction.started', {
+    paymentReference: input.reference,
+    providerPaymentId: input.providerPaymentId,
+    paymentStatus: input.status,
   });
 
-  return result.count > 0;
+  try {
+    const result = await prisma.paymentTransaction.updateMany({
+      where: { reference: input.reference },
+      data: {
+        providerPaymentId: input.providerPaymentId,
+        status: input.status,
+        paidAt: input.status === 'PAID' ? now : undefined,
+        failedAt: input.status === 'FAILED' ? now : undefined,
+        cancelledAt: input.status === 'CANCELLED' ? now : undefined,
+        refundedAt: input.status === 'REFUNDED' ? now : undefined,
+      },
+    });
+
+    logStructuredEvent('info', '[DATABASE]', 'server.updatePaymentIntentFromWebhook', 'update.payment.transaction.succeeded', {
+      paymentReference: input.reference,
+      providerPaymentId: input.providerPaymentId,
+      paymentStatus: input.status,
+      rowsAffected: result.count,
+    });
+
+    return result.count > 0;
+  } catch (error) {
+    logPaymentError('[DATABASE]', 'server.updatePaymentIntentFromWebhook', 'update.payment.transaction.failed', error, {
+      paymentReference: input.reference,
+      providerPaymentId: input.providerPaymentId,
+      paymentStatus: input.status,
+    });
+    throw error;
+  }
 }
 
 function mapLencoStatusToPaymentStatus(status: string | undefined) {
@@ -1617,12 +1750,22 @@ async function persistWebhookDelivery(input: {
 }) {
   if (!isPrismaAvailable()) {
     if (inMemoryWebhookEvents.has(input.providerEventId)) {
+      logStructuredEvent('info', '[DATABASE]', 'server.persistWebhookDelivery', 'duplicate.webhook.skipped', {
+        eventId: input.providerEventId,
+      });
       return false;
     }
 
     inMemoryWebhookEvents.add(input.providerEventId);
+    logStructuredEvent('info', '[DATABASE]', 'server.persistWebhookDelivery', 'webhook.delivery.cached', {
+      eventId: input.providerEventId,
+    });
     return true;
   }
+
+  logStructuredEvent('info', '[DATABASE]', 'server.persistWebhookDelivery', 'create.webhook.delivery.started', {
+    eventId: input.providerEventId,
+  });
 
   try {
     await prisma.webhookDelivery.create({
@@ -1633,12 +1776,22 @@ async function persistWebhookDelivery(input: {
         payload: toPrismaJson(input.payload) ?? ({} as Prisma.InputJsonValue),
       },
     });
+    logStructuredEvent('info', '[DATABASE]', 'server.persistWebhookDelivery', 'create.webhook.delivery.succeeded', {
+      eventId: input.providerEventId,
+    });
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('Unique constraint failed')) {
+      logStructuredEvent('info', '[DATABASE]', 'server.persistWebhookDelivery', 'duplicate.webhook.delivery', {
+        eventId: input.providerEventId,
+        errorMessage: message,
+      });
       return false;
     }
+    logPaymentError('[DATABASE]', 'server.persistWebhookDelivery', 'create.webhook.delivery.failed', error, {
+      eventId: input.providerEventId,
+    });
     throw error;
   }
 }
@@ -3044,134 +3197,262 @@ app.get('/api/me/tickets', ticketReadRateLimiter, async (request: Request, respo
 });
 
 app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: AuthenticatedRequest & Request<unknown, unknown, LencoPaymentRequest>, response: Response) => {
+  const route = '/api/pay';
+  const requestId = resolveRequestId(request);
+  const startedAt = Date.now();
   const principal = await requireAuthenticatedSession(request);
+
   if (!principal) {
+    logStructuredEvent('warn', '[PAYMENT]', route, 'auth.required', {
+      requestId,
+      message: 'Sign in is required before purchasing tickets.',
+    });
     response.status(401).json({ success: false, message: 'Sign in is required before purchasing tickets.' });
     return;
   }
 
   const {amount, currency, description, customerEmail, customerName, phoneNumber, operator, metadata} = request.body;
 
-  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
-    response.status(400).json({success: false, message: 'A valid amount is required.'});
-    return;
-  }
-
-  if (!isNonEmptyString(currency) || !isNonEmptyString(description)) {
-    response.status(400).json({success: false, message: 'Currency and description are required.'});
-    return;
-  }
-
-  const normalizedPhone = isNonEmptyString(phoneNumber) ? phoneNumber.trim() : '';
-  const normalizedOperator = isNonEmptyString(operator) ? operator.trim().toLowerCase() : '';
-  if (!normalizedPhone) {
-    response.status(400).json({ success: false, message: 'A mobile money phone number is required.' });
-    return;
-  }
-
-  if (!['mtn', 'airtel', 'zamtel'].includes(normalizedOperator)) {
-    response.status(400).json({ success: false, message: 'A valid operator is required.' });
-    return;
-  }
-
-  const normalizedMetadata = toJsonObject(metadata);
-  const ticketType = parseTicketType(normalizedMetadata?.ticketType);
-  const quantity = parseQuantity(normalizedMetadata?.quantity);
-  if (!ticketType || !quantity) {
-    response.status(400).json({ success: false, message: 'Payment metadata must include ticketType and quantity.' });
-    return;
-  }
-
-  if (!canUseLencoGateway()) {
-    response.status(503).json({ success: false, message: 'Payment provider not configured on the server.' });
-    return;
-  }
-
-  const reference = `LENCO-${crypto.randomUUID()}`;
-  const payload: {
-    amount: number;
-    currency: string;
-    description: string;
-    customerEmail?: string;
-    customerName?: string;
-    phoneNumber: string;
-    operator: 'mtn' | 'airtel' | 'zamtel';
-    metadata?: Record<string, unknown>;
-    reference: string;
-  } = {
-    amount,
-    currency: currency.trim().toUpperCase(),
-    description: description.trim(),
-    customerEmail: isNonEmptyString(customerEmail) ? customerEmail.trim() : undefined,
-    customerName: isNonEmptyString(customerName) ? customerName.trim() : undefined,
-    phoneNumber: normalizedPhone,
-    operator: normalizedOperator as 'mtn' | 'airtel' | 'zamtel',
-    metadata: normalizedMetadata,
-    reference,
-  };
-
-  await persistPaymentIntent({
-    reference,
-    amount,
-    currency: payload.currency,
-    description: payload.description,
-    customerEmail: payload.customerEmail,
-    customerName: payload.customerName,
+  logStructuredEvent('info', '[PAYMENT]', route, 'request.received', {
+    requestId,
     userId: principal.userId,
-    metadata: payload.metadata,
-  });
-
-  await emitAuditEvent({
-    name: 'SESSION_CREATED',
-    actorUserId: principal.userId,
-    targetUserId: principal.userId,
-    resourceType: 'payment-intent',
-    resourceId: reference,
-    metadata: { amount, currency: payload.currency, role: principal.role },
-    request: request as Request,
-  });
-
-  response.json({
-    success: true,
-    message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
-    reference,
     amount,
-    currency: payload.currency,
-    customerEmail: payload.customerEmail,
-    customerName: payload.customerName,
-    phoneNumber: payload.phoneNumber,
-    operator: payload.operator,
+    currency: typeof currency === 'string' ? currency : undefined,
+    description: typeof description === 'string' ? description : undefined,
+    customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
+    customerName: typeof customerName === 'string' ? customerName : undefined,
+    phoneNumber: typeof phoneNumber === 'string' ? phoneNumber : undefined,
+    operator: typeof operator === 'string' ? operator : undefined,
+    metadata: toJsonObject(metadata),
+    requestBody: request.body,
   });
+
+  try {
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
+        requestId,
+        userId: principal.userId,
+        reason: 'invalid_amount',
+        amount,
+      });
+      response.status(400).json({success: false, message: 'A valid amount is required.'});
+      return;
+    }
+
+    if (!isNonEmptyString(currency) || !isNonEmptyString(description)) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
+        requestId,
+        userId: principal.userId,
+        reason: 'missing_currency_or_description',
+      });
+      response.status(400).json({success: false, message: 'Currency and description are required.'});
+      return;
+    }
+
+    const normalizedPhone = isNonEmptyString(phoneNumber) ? phoneNumber.trim() : '';
+    const normalizedOperator = isNonEmptyString(operator) ? operator.trim().toLowerCase() : '';
+    if (!normalizedPhone) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
+        requestId,
+        userId: principal.userId,
+        reason: 'missing_phone_number',
+      });
+      response.status(400).json({ success: false, message: 'A mobile money phone number is required.' });
+      return;
+    }
+
+    if (!['mtn', 'airtel', 'zamtel'].includes(normalizedOperator)) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
+        requestId,
+        userId: principal.userId,
+        reason: 'invalid_operator',
+        operator: normalizedOperator,
+      });
+      response.status(400).json({ success: false, message: 'A valid operator is required.' });
+      return;
+    }
+
+    const normalizedMetadata = toJsonObject(metadata);
+    const ticketType = parseTicketType(normalizedMetadata?.ticketType);
+    const quantity = parseQuantity(normalizedMetadata?.quantity);
+    if (!ticketType || !quantity) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
+        requestId,
+        userId: principal.userId,
+        reason: 'missing_ticket_metadata',
+        metadata: normalizedMetadata,
+      });
+      response.status(400).json({ success: false, message: 'Payment metadata must include ticketType and quantity.' });
+      return;
+    }
+
+    if (!canUseLencoGateway()) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'gateway.unavailable', {
+        requestId,
+        userId: principal.userId,
+      });
+      response.status(503).json({ success: false, message: 'Payment provider not configured on the server.' });
+      return;
+    }
+
+    const reference = `LENCO-${crypto.randomUUID()}`;
+    const payload: {
+      amount: number;
+      currency: string;
+      description: string;
+      customerEmail?: string;
+      customerName?: string;
+      phoneNumber: string;
+      operator: 'mtn' | 'airtel' | 'zamtel';
+      metadata?: Record<string, unknown>;
+      reference: string;
+    } = {
+      amount,
+      currency: currency.trim().toUpperCase(),
+      description: description.trim(),
+      customerEmail: isNonEmptyString(customerEmail) ? customerEmail.trim() : undefined,
+      customerName: isNonEmptyString(customerName) ? customerName.trim() : undefined,
+      phoneNumber: normalizedPhone,
+      operator: normalizedOperator as 'mtn' | 'airtel' | 'zamtel',
+      metadata: normalizedMetadata,
+      reference,
+    };
+
+    logStructuredEvent('info', '[PAYMENT]', route, 'payment.reference.created', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+      amount: payload.amount,
+      currency: payload.currency,
+      description: payload.description,
+      metadata: payload.metadata,
+      customerEmail: payload.customerEmail,
+      customerName: payload.customerName,
+      phoneNumber: payload.phoneNumber,
+      operator: payload.operator,
+    });
+
+    await persistPaymentIntent({
+      reference,
+      amount,
+      currency: payload.currency,
+      description: payload.description,
+      customerEmail: payload.customerEmail,
+      customerName: payload.customerName,
+      userId: principal.userId,
+      metadata: payload.metadata,
+    });
+
+    await emitAuditEvent({
+      name: 'SESSION_CREATED',
+      actorUserId: principal.userId,
+      targetUserId: principal.userId,
+      resourceType: 'payment-intent',
+      resourceId: reference,
+      metadata: { amount, currency: payload.currency, role: principal.role },
+      request: request as Request,
+    });
+
+    logStructuredEvent('info', '[PAYMENT]', route, 'response.sent', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+      amount: payload.amount,
+      currency: payload.currency,
+      httpStatus: 200,
+      elapsedMs: Date.now() - startedAt,
+      responseBody: {
+        success: true,
+        message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
+        reference,
+        amount: payload.amount,
+        currency: payload.currency,
+      },
+    });
+
+    response.json({
+      success: true,
+      message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
+      reference,
+      amount,
+      currency: payload.currency,
+      customerEmail: payload.customerEmail,
+      customerName: payload.customerName,
+      phoneNumber: payload.phoneNumber,
+      operator: payload.operator,
+    });
+  } catch (error) {
+    logPaymentError('[PAYMENT]', route, 'session.creation.failed', error, {
+      requestId,
+      userId: principal.userId,
+      amount,
+      currency: typeof currency === 'string' ? currency : undefined,
+    });
+    response.status(500).json({ success: false, message: 'Unable to start payment session.' });
+  }
 });
 
 app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
+  const route = '/api/payments/:reference/lenco-status';
+  const requestId = resolveRequestId(request);
+  const startedAt = Date.now();
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
+    logStructuredEvent('warn', '[VERIFY]', route, 'auth.required', {
+      requestId,
+      message: 'Authentication required.',
+    });
     response.status(401).json({ success: false, message: 'Authentication required.' });
     return;
   }
 
   const { reference } = request.params;
   if (!reference || reference.trim().length < 8) {
+    logStructuredEvent('warn', '[VERIFY]', route, 'validation.failed', {
+      requestId,
+      userId: principal.userId,
+      reason: 'missing_reference',
+    });
     response.status(400).json({ success: false, message: 'Payment reference is required.' });
     return;
   }
+
+  logStructuredEvent('info', '[VERIFY]', route, 'request.received', {
+    requestId,
+    userId: principal.userId,
+    paymentReference: reference,
+  });
 
   const payment = isPrismaAvailable()
     ? await prisma.paymentTransaction.findUnique({ where: { reference }, select: { userId: true } })
     : { userId: null };
 
   if (!payment) {
+    logStructuredEvent('warn', '[VERIFY]', route, 'payment.not.found', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+    });
     response.status(404).json({ success: false, message: 'Payment not found for reference.' });
     return;
   }
 
   if (!canAccessPaymentReference(principal, payment.userId ?? null)) {
+    logStructuredEvent('warn', '[VERIFY]', route, 'access.denied', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+    });
     response.status(403).json({ success: false, message: 'You are not authorized to view this payment.' });
     return;
   }
 
   if (!canUseLencoGateway()) {
+    logStructuredEvent('warn', '[VERIFY]', route, 'gateway.unavailable', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+    });
     response.status(503).json({ success: false, message: 'Payment provider not configured on the server.' });
     return;
   }
@@ -3182,8 +3463,25 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
     let reservationFinalized = false;
     let ticketDeliveryReady = false;
 
+    logStructuredEvent('info', '[VERIFY]', route, 'lenco.status.requested', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+      lencoReference: status.lencoReference,
+      providerPaymentId: status.id,
+      providerStatus: status.status,
+    });
+
     if (isPrismaAvailable() && status.status) {
       const mappedStatus = mapLencoStatusToPaymentStatus(status.status);
+
+      logStructuredEvent('info', '[DATABASE]', route, 'payment.status.verify', {
+        requestId,
+        userId: principal.userId,
+        paymentReference: reference,
+        providerStatus: status.status,
+        mappedStatus,
+      });
 
       const finalized = await applyPaymentStatusAndFinalize({
         reference,
@@ -3196,6 +3494,22 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
       ticketDeliveryReady = finalized.ticketDeliveryReady;
     }
 
+    logStructuredEvent('info', '[VERIFY]', route, 'response.sent', {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+      httpStatus: 200,
+      elapsedMs: Date.now() - startedAt,
+      responseBody: {
+        success: true,
+        reference,
+        status: status.status,
+        transactionUpdated,
+        reservationFinalized,
+        ticketDeliveryReady,
+      },
+    });
+
     response.json({
       success: true,
       reference,
@@ -3207,6 +3521,12 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
       ticketDeliveryReady,
     });
   } catch (error) {
+    logPaymentError('[VERIFY]', route, 'verification.failed', error, {
+      requestId,
+      userId: principal.userId,
+      paymentReference: reference,
+      elapsedMs: Date.now() - startedAt,
+    });
     response.status(502).json({
       success: false,
       message: error instanceof Error ? error.message : 'Unable to verify payment status with Lenco.',
@@ -3218,67 +3538,196 @@ app.post(
   '/api/webhook',
   webhookRateLimiter,
   async (request: Request, response: Response) => {
+    const route = '/api/webhook';
+    const startedAt = Date.now();
+    const requestId = resolveRequestId(request);
     const rawBody = (request as RequestWithRawBody).rawBody ?? Buffer.from('');
     const signature = request.header('x-lenco-signature') || request.header('x-webhook-signature');
 
-    if (!verifyWebhookSignature(rawBody, signature)) {
-      response.status(401).json({success: false, message: 'Invalid webhook signature.'});
-      return;
-    }
+    console.log('==========================');
+    console.log('WEBHOOK RECEIVED');
+    console.log('==========================');
+    logStructuredEvent('info', '[WEBHOOK]', route, 'received', {
+      requestId,
+      method: request.method,
+      url: request.originalUrl,
+      headers: request.headers,
+      signatureHeader: signature,
+      rawBody: rawBody.toString('utf8'),
+    });
 
-    let event: unknown = null;
-    if (rawBody.length > 0) {
-      try {
-        event = JSON.parse(rawBody.toString('utf8'));
-      } catch {
-        response.status(400).json({success: false, message: 'Webhook body must be valid JSON.'});
+    try {
+      let verificationReason = 'signature_validation_skipped';
+      if (process.env.LENCO_WEBHOOK_SECRET) {
+        verificationReason = !signature ? 'missing_signature_header' : 'signature_mismatch';
+      }
+
+      logStructuredEvent('info', '[WEBHOOK]', route, 'signature.verification.started', {
+        requestId,
+        signatureHeader: signature,
+      });
+
+      const verificationPassed = verifyWebhookSignature(rawBody, signature);
+      if (!verificationPassed) {
+        logStructuredEvent('warn', '[WEBHOOK]', route, 'signature.verification.failed', {
+          requestId,
+          signatureHeader: signature,
+          failureReason: verificationReason,
+          rawBodyLength: rawBody.length,
+        });
+        response.status(401).json({success: false, message: 'Invalid webhook signature.'});
+        logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+          requestId,
+          httpStatus: 401,
+          responseBody: { success: false, message: 'Invalid webhook signature.' },
+          elapsedMs: Date.now() - startedAt,
+        });
         return;
       }
+
+      logStructuredEvent('info', '[WEBHOOK]', route, 'signature.verification.succeeded', {
+        requestId,
+        signatureHeader: signature,
+      });
+
+      let event: unknown = null;
+      if (rawBody.length > 0) {
+        try {
+          event = JSON.parse(rawBody.toString('utf8'));
+        } catch (error) {
+          logPaymentError('[WEBHOOK]', route, 'invalid.json', error, {
+            requestId,
+            rawBody: rawBody.toString('utf8'),
+          });
+          response.status(400).json({success: false, message: 'Webhook body must be valid JSON.'});
+          logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+            requestId,
+            httpStatus: 400,
+            responseBody: { success: false, message: 'Webhook body must be valid JSON.' },
+            elapsedMs: Date.now() - startedAt,
+          });
+          return;
+        }
+      }
+
+      const parsedBody = toJsonObject(event) ?? {};
+      logStructuredEvent('info', '[WEBHOOK]', route, 'parsed.body', {
+        requestId,
+        parsedBody,
+        eventType: typeof parsedBody.event === 'string' ? parsedBody.event : undefined,
+        paymentReference: typeof parsedBody.reference === 'string' ? parsedBody.reference : undefined,
+        transactionId: typeof parsedBody.id === 'string' ? parsedBody.id : undefined,
+        paymentStatus: typeof parsedBody.status === 'string' ? parsedBody.status : undefined,
+        amount: parsedBody.amount,
+        currency: parsedBody.currency,
+      });
+
+      const parsed = parseLencoWebhookEvent(event);
+      if (!parsed) {
+        logStructuredEvent('warn', '[WEBHOOK]', route, 'missing.reference', {
+          requestId,
+          parsedBody,
+        });
+        response.status(400).json({ success: false, message: 'Webhook payload is missing event ID or reference.' });
+        logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+          requestId,
+          httpStatus: 400,
+          responseBody: { success: false, message: 'Webhook payload is missing event ID or reference.' },
+          elapsedMs: Date.now() - startedAt,
+        });
+        return;
+      }
+
+      logStructuredEvent('info', '[WEBHOOK]', route, 'event.parsed', {
+        requestId,
+        paymentReference: parsed.reference,
+        transactionId: parsed.providerPaymentId,
+        paymentStatus: parsed.status,
+        eventId: parsed.providerEventId,
+        eventType: parsed.event,
+      });
+
+      const payload = toJsonObject(event) ?? {};
+      const inserted = await persistWebhookDelivery({
+        providerEventId: parsed.providerEventId,
+        signature: signature ?? undefined,
+        payload,
+      });
+
+      if (!inserted) {
+        logStructuredEvent('info', '[WEBHOOK]', route, 'duplicate.webhook.received', {
+          requestId,
+          paymentReference: parsed.reference,
+          eventId: parsed.providerEventId,
+        });
+        response.json({ success: true, received: true, duplicate: true });
+        logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+          requestId,
+          httpStatus: 200,
+          responseBody: { success: true, received: true, duplicate: true },
+          elapsedMs: Date.now() - startedAt,
+        });
+        return;
+      }
+
+      const finalized = await applyPaymentStatusAndFinalize({
+        reference: parsed.reference,
+        providerPaymentId: parsed.providerPaymentId,
+        status: mapLencoStatusToPaymentStatus(parsed.status),
+      });
+
+      logEvent('info', 'payment.webhook.processed', {
+        eventId: parsed.providerEventId,
+        reference: parsed.reference,
+        status: parsed.status,
+        transactionUpdated: finalized.transactionUpdated,
+        reservationFinalized: finalized.reservationFinalized,
+        ticketDeliveryReady: finalized.ticketDeliveryReady,
+        requestId,
+      });
+
+      logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+        requestId,
+        paymentReference: parsed.reference,
+        transactionId: parsed.providerPaymentId,
+        paymentStatus: parsed.status,
+        httpStatus: 200,
+        elapsedMs: Date.now() - startedAt,
+        responseBody: {
+          success: true,
+          received: true,
+          eventId: parsed.providerEventId,
+          reference: parsed.reference,
+          status: parsed.status,
+          transactionUpdated: finalized.transactionUpdated,
+          reservationCreated: finalized.reservationFinalized,
+          ticketDeliveryReady: finalized.ticketDeliveryReady,
+        },
+      });
+
+      response.json({
+        success: true,
+        received: true,
+        eventId: parsed.providerEventId,
+        reference: parsed.reference,
+        status: parsed.status,
+        transactionUpdated: finalized.transactionUpdated,
+        reservationCreated: finalized.reservationFinalized,
+        ticketDeliveryReady: finalized.ticketDeliveryReady,
+      });
+    } catch (error) {
+      logPaymentError('[WEBHOOK]', route, 'processing.failed', error, {
+        requestId,
+        rawBody: rawBody.toString('utf8'),
+      });
+      response.status(500).json({ success: false, message: 'Webhook processing failed.' });
+      logStructuredEvent('error', '[WEBHOOK]', route, 'response.sent', {
+        requestId,
+        httpStatus: 500,
+        responseBody: { success: false, message: 'Webhook processing failed.' },
+        elapsedMs: Date.now() - startedAt,
+      });
     }
-
-    const parsed = parseLencoWebhookEvent(event);
-    if (!parsed) {
-      response.status(400).json({ success: false, message: 'Webhook payload is missing event ID or reference.' });
-      return;
-    }
-
-    const payload = toJsonObject(event) ?? {};
-    const inserted = await persistWebhookDelivery({
-      providerEventId: parsed.providerEventId,
-      signature: signature ?? undefined,
-      payload,
-    });
-
-    if (!inserted) {
-      response.json({ success: true, received: true, duplicate: true });
-      return;
-    }
-
-    const finalized = await applyPaymentStatusAndFinalize({
-      reference: parsed.reference,
-      providerPaymentId: parsed.providerPaymentId,
-      status: mapLencoStatusToPaymentStatus(parsed.status),
-    });
-
-    logEvent('info', 'payment.webhook.processed', {
-      eventId: parsed.providerEventId,
-      reference: parsed.reference,
-      status: parsed.status,
-      transactionUpdated: finalized.transactionUpdated,
-      reservationFinalized: finalized.reservationFinalized,
-      ticketDeliveryReady: finalized.ticketDeliveryReady,
-    });
-
-    response.json({
-      success: true,
-      received: true,
-      eventId: parsed.providerEventId,
-      reference: parsed.reference,
-      status: parsed.status,
-      transactionUpdated: finalized.transactionUpdated,
-      reservationCreated: finalized.reservationFinalized,
-      ticketDeliveryReady: finalized.ticketDeliveryReady,
-    });
   },
 );
 

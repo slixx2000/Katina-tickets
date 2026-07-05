@@ -27,6 +27,18 @@ type TicketRecord = {
   }>;
 };
 
+function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event: `FRONTEND ${step}`,
+    service: 'katina-tickets-client',
+    ...data,
+  };
+
+  console.log(JSON.stringify(payload));
+}
+
 export default function MyTickets() {
   const [items, setItems] = useState<TicketRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +51,7 @@ export default function MyTickets() {
   );
 
   const loadTickets = async () => {
+    logFrontendEvent('my.tickets.refresh.triggered');
     setIsLoading(true);
     setError(null);
 
@@ -48,6 +61,10 @@ export default function MyTickets() {
         headers: {
           Accept: 'application/json',
         },
+      });
+
+      logFrontendEvent('my.tickets.refresh.response.received', {
+        statusCode: response.status,
       });
 
       if (!response.ok) {
@@ -63,8 +80,15 @@ export default function MyTickets() {
 
       const payload = await response.json();
       const records = Array.isArray(payload?.items) ? payload.items : [];
+      logFrontendEvent('my.tickets.refresh.succeeded', {
+        itemCount: records.length,
+        payload,
+      });
       setItems(records as TicketRecord[]);
-    } catch {
+    } catch (error) {
+      logFrontendEvent('my.tickets.refresh.error', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       setError('Network error while loading ticket history.');
     } finally {
       setIsLoading(false);

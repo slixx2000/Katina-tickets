@@ -19,7 +19,28 @@ export interface LencoPaymentResponse {
   status?: string;
 }
 
+function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event: `FRONTEND ${step}`,
+    service: 'katina-tickets-client',
+    ...data,
+  };
+
+  console.log(JSON.stringify(payload));
+}
+
 export async function processLencoPayment(payload: LencoPaymentRequest): Promise<LencoPaymentResponse> {
+  const paymentReference = `LENCO-${Math.random().toString(36).slice(2)}`;
+  logFrontendEvent('payment.session.request.started', {
+    paymentReference,
+    amount: payload.amount,
+    currency: payload.currency,
+    description: payload.description,
+    metadata: payload.metadata,
+  });
+
   try {
     const response = await fetch('/api/pay', {
       method: 'POST',
@@ -32,6 +53,11 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
 
     if (response.ok) {
       const data = await response.json();
+      logFrontendEvent('payment.session.request.succeeded', {
+        paymentReference: data.reference || paymentReference,
+        statusCode: response.status,
+        responseBody: data,
+      });
       return {
         success: true,
         statusCode: response.status,
@@ -44,6 +70,11 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
     }
 
     if (response.status === 404) {
+      logFrontendEvent('payment.session.request.failed', {
+        paymentReference,
+        statusCode: response.status,
+        reason: 'route_not_deployed',
+      });
       return {
         success: false,
         statusCode: response.status,
@@ -53,16 +84,34 @@ export async function processLencoPayment(payload: LencoPaymentRequest): Promise
 
     const errorBody = await response.json().catch(() => null);
     if (errorBody?.message) {
+      logFrontendEvent('payment.session.request.failed', {
+        paymentReference,
+        statusCode: response.status,
+        reason: errorBody.message,
+      });
       return { success: false, statusCode: response.status, message: errorBody.message };
     }
 
     const fallbackText = await response.text().catch(() => '');
     if (fallbackText && fallbackText.trim().length > 0) {
+      logFrontendEvent('payment.session.request.failed', {
+        paymentReference,
+        statusCode: response.status,
+        reason: fallbackText.trim(),
+      });
       return { success: false, statusCode: response.status, message: fallbackText.trim() };
     }
-  } catch {
+  } catch (error) {
+    logFrontendEvent('payment.session.request.error', {
+      paymentReference,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
     return { success: false, message: 'Unable to reach payment service. Please retry shortly.' };
   }
 
+  logFrontendEvent('payment.session.request.failed', {
+    paymentReference,
+    reason: 'unknown_error',
+  });
   return { success: false, message: 'Payment collection could not be created.' };
 }

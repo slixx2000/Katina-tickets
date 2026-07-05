@@ -5,6 +5,18 @@ import { QRCodeSVG } from 'qrcode.react';
 import { TicketPackage, RegistrationData } from '../types';
 import logoAndBackground from '../assets/logo_and_bg.png';
 
+function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event: `FRONTEND ${step}`,
+    service: 'katina-tickets-client',
+    ...data,
+  };
+
+  console.log(JSON.stringify(payload));
+}
+
 interface ReservationConfirmedProps {
   registrationData: RegistrationData;
   selectedPackage: TicketPackage;
@@ -35,8 +47,17 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
     setPaymentLabel(localStatus);
 
     const resolveReservation = async () => {
+      logFrontendEvent('reservation.sync.started', {
+        paymentReference,
+        paymentStatus,
+      });
+
       try {
         const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/reservation`);
+        logFrontendEvent('reservation.sync.response.received', {
+          paymentReference,
+          statusCode: response.status,
+        });
         if (!response.ok) {
           if (!mounted) return;
           if (response.status === 401) {
@@ -52,6 +73,10 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
         }
 
         const payload = await response.json();
+        logFrontendEvent('reservation.sync.succeeded', {
+          paymentReference,
+          responseBody: payload,
+        });
         if (!mounted) return;
 
         const status = String(payload?.paymentStatus ?? '').toUpperCase();
@@ -68,7 +93,14 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
         }
 
         if (status === 'PAID') {
+          logFrontendEvent('ticket.token.request.started', {
+            paymentReference,
+          });
           const tokenResponse = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-token`);
+          logFrontendEvent('ticket.token.response.received', {
+            paymentReference,
+            statusCode: tokenResponse.status,
+          });
           if (!tokenResponse.ok) {
             if (tokenResponse.status === 401) {
               setSyncError('Your session expired. Sign in again to retrieve the ticket token.');
@@ -79,12 +111,20 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
             }
           } else {
             const tokenPayload = await tokenResponse.json();
+            logFrontendEvent('ticket.token.succeeded', {
+              paymentReference,
+              responseBody: tokenPayload,
+            });
             if (typeof tokenPayload?.token === 'string' && tokenPayload.token.length > 0 && mounted) {
               setTicketToken(tokenPayload.token);
             }
           }
         }
-      } catch {
+      } catch (error) {
+        logFrontendEvent('reservation.sync.error', {
+          paymentReference,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         if (mounted) {
           setSyncError('Network error while syncing reservation details. Please retry.');
         }
@@ -103,6 +143,10 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
   }, [paymentReference, paymentStatus, syncAttempt]);
 
   const handleDownloadPdf = async () => {
+    logFrontendEvent('ticket.pdf.download.started', {
+      paymentReference,
+      paymentLabel,
+    });
     setDownloadError(null);
 
     if (paymentLabel !== 'PAID') {
@@ -113,6 +157,10 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
     setIsDownloadingPdf(true);
     try {
       const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-pdf`);
+      logFrontendEvent('ticket.pdf.download.response.received', {
+        paymentReference,
+        statusCode: response.status,
+      });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         if (response.status === 401) {
@@ -128,6 +176,10 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
       }
 
       const blob = await response.blob();
+      logFrontendEvent('ticket.pdf.download.succeeded', {
+        paymentReference,
+        sizeBytes: blob.size,
+      });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -136,7 +188,11 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-    } catch {
+    } catch (error) {
+      logFrontendEvent('ticket.pdf.download.error', {
+        paymentReference,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       setDownloadError('Unable to download ticket PDF right now.');
     } finally {
       setIsDownloadingPdf(false);

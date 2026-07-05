@@ -23,6 +23,18 @@ const MOBILE_MONEY_OPERATORS = [
   { value: 'zamtel', label: 'Zamtel' },
 ] as const;
 
+function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event: `FRONTEND ${step}`,
+    service: 'katina-tickets-client',
+    ...data,
+  };
+
+  console.log(JSON.stringify(payload));
+}
+
 export default function SecureCheckout({ registrationData, selectedPackage, onSubmit }: SecureCheckoutProps) {
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [isLaunchingWidget, setIsLaunchingWidget] = useState(false);
@@ -65,17 +77,40 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const paymentReference = `LENCO-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    logFrontendEvent('checkout.started', {
+      paymentReference,
+      amount: grandTotal,
+      currency: 'ZMW',
+      ticketType: registrationData.ticketType,
+      quantity: registrationData.quantity,
+      customerEmail: registrationData.email,
+      customerName: registrationData.fullName,
+    });
+
     if (submitLockRef.current) {
+      logFrontendEvent('checkout.blocked.submit.lock', {
+        paymentReference,
+      });
       return;
     }
 
     const normalizedPhoneNumber = phoneNumber.replace(/[^0-9+]/g, '').trim();
     if (!/^\+?[0-9]{9,15}$/.test(normalizedPhoneNumber)) {
+      logFrontendEvent('checkout.validation.failed', {
+        paymentReference,
+        reason: 'invalid_phone_number',
+        phoneNumber: normalizedPhoneNumber,
+      });
       setCheckoutError('Enter the mobile money phone number for this payment.');
       return;
     }
 
     if (!lencoPublicKey) {
+      logFrontendEvent('checkout.validation.failed', {
+        paymentReference,
+        reason: 'missing_lenco_public_key',
+      });
       setCheckoutError('Missing Lenco public key for the payment widget.');
       return;
     }
@@ -86,6 +121,16 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
     setCheckoutError(null);
 
     try {
+      logFrontendEvent('payment.session.request.started', {
+        paymentReference,
+        amount: grandTotal,
+        currency: 'ZMW',
+        ticketType: registrationData.ticketType,
+        quantity: registrationData.quantity,
+        phoneNumber: normalizedPhoneNumber,
+        operator,
+      });
+
       const launchResponse = await fetch('/api/pay', {
         method: 'POST',
         credentials: 'include',
@@ -110,19 +155,41 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
 
       const launchPayload = await launchResponse.json().catch(() => null);
       if (!launchResponse.ok || !launchPayload?.reference) {
+        logFrontendEvent('payment.session.request.failed', {
+          paymentReference,
+          statusCode: launchResponse.status,
+          responseBody: launchPayload,
+        });
         setCheckoutError(launchPayload?.message || 'Payment could not be started. Please retry.');
         return;
       }
 
       const reference = String(launchPayload.reference);
+      logFrontendEvent('payment.session.request.succeeded', {
+        paymentReference: reference,
+        statusCode: launchResponse.status,
+        responseBody: launchPayload,
+      });
+
       const lenco = (window as Window & { LencoPay?: { getPaid: (args: Record<string, unknown>) => void } }).LencoPay;
       if (!lenco) {
+        logFrontendEvent('widget.launch.failed', {
+          paymentReference: reference,
+          reason: 'widget_unavailable',
+        });
         setCheckoutError('The Lenco payment widget is not available.');
         return;
       }
 
       const [firstName, ...restNames] = registrationData.fullName.trim().split(/\s+/);
       const lastName = restNames.join(' ').trim() || 'Guest';
+
+      logFrontendEvent('widget.opened', {
+        paymentReference: reference,
+        lencoPublicKey,
+        amount: grandTotal,
+        currency: 'ZMW',
+      });
 
       lenco.getPaid({
         key: lencoPublicKey,
@@ -139,36 +206,83 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
         },
         onSuccess: async (response: { reference?: string }) => {
           const verifiedReference = response.reference || reference;
-          const verifyResponse = await fetch(`/api/payments/${encodeURIComponent(verifiedReference)}/lenco-status`, {
-            credentials: 'include',
+          logFrontendEvent('payment.authorized', {
+            paymentReference: verifiedReference,
+            sourceReference: reference,
           });
-          const verifyPayload = await verifyResponse.json().catch(() => null);
-          const verifyStatus = String(verifyPayload?.status || '').toUpperCase();
-          const normalizedStatus = verifyStatus === 'PAID' || verifyStatus === 'SUCCESSFUL' || verifyStatus === 'SUCCESS'
-            ? 'completed'
-            : verifyStatus === 'FAILED'
-              ? 'failed'
-              : 'pending';
 
-          const submission: PaymentData = {
-            method: 'mobilemoney',
-            reference: verifiedReference,
-            status: normalizedStatus,
-          };
+          try {
+            logFrontendEvent('payment.verification.request.started', {
+              paymentReference: verifiedReference,
+            });
+            const verifyResponse = await fetch(`/api/payments/${encodeURIComponent(verifiedReference)}/lenco-status`, {
+              credentials: 'include',
+            });
+            const verifyPayload = await verifyResponse.json().catch(() => null);
+            const verifyStatus = String(verifyPayload?.status || '').toUpperCase();
+            const normalizedStatus = verifyStatus === 'PAID' || verifyStatus === 'SUCCESSFUL' || verifyStatus === 'SUCCESS'
+              ? 'completed'
+              : verifyStatus === 'FAILED'
+                ? 'failed'
+                : 'pending';
 
-          setPendingSubmission(submission);
-          setCheckoutOutcome({
-            status: normalizedStatus,
-            reference: verifiedReference,
-            message: normalizedStatus === 'completed'
-              ? 'Payment complete. Your reservation has been secured.'
-              : 'Payment is pending provider confirmation. Continue once the payment is confirmed.',
-          });
+            logFrontendEvent('payment.verification.response.received', {
+              paymentReference: verifiedReference,
+              statusCode: verifyResponse.status,
+              verifyStatus,
+              normalizedStatus,
+              responseBody: verifyPayload,
+            });
+
+            const submission: PaymentData = {
+              method: 'mobilemoney',
+              reference: verifiedReference,
+              status: normalizedStatus,
+            };
+
+            setPendingSubmission(submission);
+            if (normalizedStatus === 'completed') {
+              logFrontendEvent('payment.success.detected', {
+                paymentReference: verifiedReference,
+              });
+            } else if (normalizedStatus === 'failed') {
+              logFrontendEvent('payment.failure.detected', {
+                paymentReference: verifiedReference,
+              });
+            } else {
+              logFrontendEvent('payment.pending.detected', {
+                paymentReference: verifiedReference,
+              });
+            }
+            setCheckoutOutcome({
+              status: normalizedStatus,
+              reference: verifiedReference,
+              message: normalizedStatus === 'completed'
+                ? 'Payment complete. Your reservation has been secured.'
+                : 'Payment is pending provider confirmation. Continue once the payment is confirmed.',
+            });
+          } catch (error) {
+            logFrontendEvent('payment.verification.error', {
+              paymentReference: verifiedReference,
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+            setCheckoutOutcome({
+              status: 'pending',
+              reference: verifiedReference,
+              message: 'Payment confirmation could not be verified yet. Please try again.',
+            });
+          }
         },
         onClose: () => {
+          logFrontendEvent('widget.closed', {
+            paymentReference: reference,
+          });
           setCheckoutError('Payment window was closed before completion.');
         },
         onConfirmationPending: () => {
+          logFrontendEvent('widget.confirmation.pending', {
+            paymentReference: reference,
+          });
           setCheckoutOutcome({
             status: 'pending',
             reference,
@@ -176,7 +290,11 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
           });
         },
       });
-    } catch {
+    } catch (error) {
+      logFrontendEvent('checkout.error', {
+        paymentReference,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       setCheckoutError('Unexpected checkout error. Please retry in a moment.');
     } finally {
       setIsProcessingPayment(false);
