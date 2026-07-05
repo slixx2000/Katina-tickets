@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
@@ -73,6 +74,34 @@ describe('API integration', () => {
     expect(secondResponse.status).toBe(200);
     expect(secondResponse.body.success).toBe(true);
     expect(secondResponse.body.duplicate).toBe(true);
+  });
+
+  it('accepts webhooks signed with the expected HMAC-SHA256 signature', async () => {
+    process.env.LENCO_WEBHOOK_SECRET = 'test-webhook-secret';
+
+    const payload = {
+      eventId: 'evt-hmac-approved',
+      reference: 'LENCO-TEST-REF-HMAC-APPROVED',
+      status: 'paid',
+      data: {
+        id: 'pay-hmac-approved',
+      },
+    };
+
+    const rawBody = JSON.stringify(payload);
+    const signature = crypto
+      .createHmac('sha256', process.env.LENCO_WEBHOOK_SECRET as string)
+      .update(rawBody)
+      .digest('hex');
+
+    const response = await request(app)
+      .post('/api/webhook')
+      .set('Content-Type', 'application/json')
+      .set('x-lenco-signature', `sha256=${signature}`)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
   });
 
   it('requires authentication before creating payment sessions', async () => {

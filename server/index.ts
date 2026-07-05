@@ -649,37 +649,53 @@ function parseWebhookSignature(signatureHeader: string | undefined) {
     return null;
   }
 
-  const parts = trimmed.split(',').map((part) => part.trim());
-  const direct = parts.find((part) => !part.includes('='));
-  if (direct) {
-    return direct;
+  const parts = trimmed
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
   }
 
-  const keyValue = parts.find((part) => part.startsWith('v1=')) || parts[0];
-  return keyValue.includes('=') ? keyValue.split('=')[1] : keyValue;
+  const directValue = parts.find((part) => !part.includes('='));
+  if (directValue) {
+    return directValue;
+  }
+
+  for (const part of parts) {
+    const [prefix, ...valueParts] = part.split('=');
+    const value = valueParts.join('=').trim();
+    if (!value) {
+      continue;
+    }
+
+    const normalizedPrefix = prefix?.trim().toLowerCase();
+    if (normalizedPrefix === 'sha256' || normalizedPrefix === 'v1' || normalizedPrefix === 'v2') {
+      return value;
+    }
+  }
+
+  const fallback = parts[0];
+  const separatorIndex = fallback.indexOf('=');
+  return separatorIndex >= 0 ? fallback.slice(separatorIndex + 1).trim() : fallback;
 }
 
 function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined) {
-  const secret = process.env.LENCO_WEBHOOK_SECRET;
+  const secret = process.env.LENCO_WEBHOOK_SECRET?.trim();
   const providedSignature = parseWebhookSignature(signatureHeader);
-  const isProd = isProductionRuntime();
 
   if (!secret || !providedSignature) {
-    if (isProd) {
-      return false;
-    }
-
-    return true;
-  }
-
-  const normalizedProvidedSignature = providedSignature.trim().toLowerCase();
-  if (!/^[a-f0-9]{128}$/.test(normalizedProvidedSignature)) {
     return false;
   }
 
-  const webhookHashKey = crypto.createHash('sha256').update(secret).digest('hex');
+  const normalizedProvidedSignature = providedSignature.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalizedProvidedSignature)) {
+    return false;
+  }
+
   const expectedSignature = crypto
-    .createHmac('sha512', webhookHashKey)
+    .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
 
@@ -687,7 +703,10 @@ function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undef
     return false;
   }
 
-  return crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(normalizedProvidedSignature));
+  return crypto.timingSafeEqual(
+    Buffer.from(expectedSignature, 'hex'),
+    Buffer.from(normalizedProvidedSignature, 'hex'),
+  );
 }
 
 function toJsonObject(value: unknown): Record<string, unknown> | undefined {
