@@ -6,7 +6,8 @@ import type { Prisma } from '@prisma/client';
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
-import QRCode from 'qrcode';
+// @ts-ignore - qrcode doesn't have TypeScript definitions
+import * as QRCode from 'qrcode';
 import { buildAuthCookieName, buildClearedCookie, buildSetCookieHeaders, getAuthCookieOptions } from './auth/cookies.js';
 import { createCsrfGuard, createInMemoryRateLimiter, createOriginGuard, type AuthenticatedRequest } from './auth/index.js';
 import { buildAuditEvent, logAuditEvent, type AuditEvent } from './auth/audit.js';
@@ -2763,10 +2764,6 @@ app.get('/api/scanner/dashboard', async (request: Request, response: Response) =
     return;
   }
 
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
-    return;
-  }
-
   if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
     response.status(403).json({ success: false, message: 'Forbidden.' });
     return;
@@ -2866,10 +2863,6 @@ app.get('/api/scanner/search', async (request: Request, response: Response) => {
     return;
   }
 
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
-    return;
-  }
-
   if (!['SUPER_ADMIN', 'SCANNER'].includes(principal.role)) {
     response.status(403).json({ success: false, message: 'Forbidden.' });
     return;
@@ -2935,10 +2928,6 @@ app.post('/api/scanner/validate', createOriginGuard(allowedOrigins), createCsrfG
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
-    return;
-  }
-
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
@@ -3022,10 +3011,6 @@ app.post('/api/scanner/check-in', createOriginGuard(allowedOrigins), createCsrfG
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
-    return;
-  }
-
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
@@ -3157,10 +3142,6 @@ app.get('/api/finance/reports', async (request: Request, response: Response) => 
     return;
   }
 
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
-    return;
-  }
-
   if (!['SUPER_ADMIN', 'FINANCE'].includes(principal.role)) {
     response.status(403).json({ success: false, message: 'Forbidden.' });
     return;
@@ -3180,10 +3161,6 @@ app.post('/api/organizer/events', createOriginGuard(allowedOrigins), createCsrfG
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
-    return;
-  }
-
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
