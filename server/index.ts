@@ -1932,10 +1932,19 @@ app.post('/api/session-auth/exchange', authRateLimiter, createOriginGuard(allowe
   let principal: AuthPrincipal | null = null;
 
   if (verifiedUser) {
+    const normalizedEmail = verifiedUser.email.trim().toLowerCase();
+    const adminAllowlist = parseAdminConsoleAllowlist();
+    const isAllowlistedAdmin = adminAllowlist.has(normalizedEmail);
+
+    const requestedRole = verifiedUser.role;
+    const role = isAllowlistedAdmin
+      ? (isAdminConsoleRole(requestedRole) ? requestedRole : 'SUPER_ADMIN')
+      : (isAdminConsoleRole(requestedRole) ? 'CUSTOMER' : requestedRole);
+
     const user = await authRepository.upsertUserFromOAuth({
       id: verifiedUser.id,
       email: verifiedUser.email,
-      role: verifiedUser.role,
+      role,
       mfaEnabled: verifiedUser.mfaEnabled,
     });
 
