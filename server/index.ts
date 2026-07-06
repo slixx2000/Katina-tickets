@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
 import express, {type Request, type Response} from 'express';
 import type { PaymentStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
@@ -94,8 +96,8 @@ type SessionPayload = {
 type TicketTypeKey = 'ordinary' | 'vip';
 
 const DEFAULT_INVENTORY: Record<TicketTypeKey, { price: number; totalCap: number; remaining: number }> = {
-  ordinary: { price: 725, totalCap: 600, remaining: 600 },
-  vip: { price: 1250, totalCap: 300, remaining: 300 },
+  ordinary: { price: 725, totalCap: 603, remaining: 603 },
+  vip: { price: 1250, totalCap: 303, remaining: 303 },
 };
 
 const DEFAULT_EVENT_SLUG = 'fashion-show-2026';
@@ -773,61 +775,118 @@ async function buildTicketPdfBytes(input: {
   const fontRegular = await document.embedFont(StandardFonts.Helvetica);
   const fontBold = await document.embedFont(StandardFonts.HelveticaBold);
 
+  // App color scheme
+  const darkBrown = rgb(0.306, 0.078, 0.075); // #4E1413
+  const cream = rgb(0.957, 0.957, 0.949); // #F4F4F2
+  const sageGreen = rgb(0.4, 0.431, 0.329); // #666E54
+  const darkText = rgb(0.18, 0.18, 0.165); // #2E2E2A
+  const mutedText = rgb(0.416, 0.416, 0.341); // #6A6A57
+
+  // Draw header background
+  page.drawRectangle({
+    x: 0,
+    y: 750,
+    width: 595,
+    height: 92,
+    color: darkBrown,
+  });
+
+  // Add logo if available
+  try {
+    const logoPath = path.join(process.cwd(), 'Katina-tickets', 'src', 'assets', 'logo_and_bg.png');
+    if (fs.existsSync(logoPath)) {
+      const logoBuffer = fs.readFileSync(logoPath);
+      const logoPng = await document.embedPng(logoBuffer);
+      page.drawImage(logoPng, {
+        x: 70,
+        y: 770,
+        width: 60,
+        height: 60,
+      });
+    }
+  } catch (error) {
+    // Logo not found, continue without it
+  }
+
+  // Draw title on header background
+  page.drawText('Fashion Show 2026', {
+    x: 150,
+    y: 800,
+    size: 22,
+    font: fontBold,
+    color: cream,
+  });
+
+  page.drawText('Digital Ticket', {
+    x: 150,
+    y: 778,
+    size: 12,
+    font: fontRegular,
+    color: sageGreen,
+  });
+
+  // Decorative line
+  page.drawRectangle({
+    x: 56,
+    y: 748,
+    width: 483,
+    height: 1,
+    color: sageGreen,
+  });
+
   const drawLine = (label: string, value: string, y: number) => {
-    page.drawText(label, { x: 56, y, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
-    page.drawText(value, { x: 180, y, size: 11, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
+    page.drawText(label, { x: 56, y, size: 10, font: fontBold, color: darkBrown });
+    page.drawText(value, { x: 200, y, size: 10, font: fontRegular, color: darkText });
   };
 
-  page.drawText('Fashion Show - Digital Ticket', {
-    x: 56,
-    y: 790,
-    size: 24,
-    font: fontBold,
-    color: rgb(0.16, 0.05, 0.04),
-  });
+  const drawSection = (title: string, y: number) => {
+    page.drawText(title, {
+      x: 56,
+      y,
+      size: 11,
+      font: fontBold,
+      color: darkBrown,
+    });
+    page.drawRectangle({
+      x: 56,
+      y: y - 4,
+      width: 483,
+      height: 1,
+      color: sageGreen,
+    });
+  };
 
-  page.drawText('This ticket was issued by Katina Tickets.', {
+  drawSection('Event Details', 710);
+  drawLine('Event', 'Fashion Show', 688);
+  drawLine('Date', '30 October 2026', 668);
+  drawLine('Time', '6:00 PM - 9:00 PM', 648);
+  drawLine('Venue', 'Mulungushi Conference Centre', 628);
+
+  drawSection('Guest Information', 600);
+  drawLine('Name', input.fullName, 578);
+  drawLine('Email', input.email, 558);
+  drawLine('Payment Reference', input.reference, 538);
+
+  drawSection('Ticket Details', 510);
+  drawLine('Ticket Type', input.ticketType.toUpperCase(), 488);
+  drawLine('Quantity', String(input.quantity), 468);
+  drawLine('Seats', input.seatDetails.join(', ') || 'Not assigned', 448);
+
+  page.drawText(`Issued at: ${new Date().toLocaleString()}`, {
     x: 56,
-    y: 768,
-    size: 11,
+    y: 420,
+    size: 9,
     font: fontRegular,
-    color: rgb(0.25, 0.25, 0.25),
+    color: mutedText,
   });
 
-  drawLine('Event', 'Fashion Show', 736);
-  drawLine('Date', '30 October 2026', 712);
-  drawLine('Time', '6:00 PM - 9:00 PM', 688);
-  drawLine('Venue', 'Mulungushi Conference Centre', 664);
-  drawLine('Payment Reference', input.reference, 636);
-  drawLine('Guest Name', input.fullName, 612);
-  drawLine('Guest Email', input.email, 588);
-  drawLine('Ticket Type', input.ticketType.toUpperCase(), 564);
-  drawLine('Quantity', String(input.quantity), 540);
-  drawLine('Seats', input.seatDetails.join(', '), 516);
-
-  page.drawText(`Issued at: ${new Date().toISOString()}`, {
+  drawSection('QR Code', 390);
+  page.drawText('Scan this code at entry', {
     x: 56,
-    y: 484,
+    y: 368,
     size: 10,
     font: fontRegular,
-    color: rgb(0.35, 0.35, 0.35),
-  });
-
-  page.drawText('Ticket Token (Scanner Payload)', {
-    x: 56,
-    y: 448,
-    size: 11,
-    font: fontBold,
-    color: rgb(0.1, 0.1, 0.1),
-  });
-  page.drawText(input.qrCodeValue, {
-    x: 56,
-    y: 428,
-    size: 8,
-    font: fontRegular,
-    color: rgb(0.2, 0.2, 0.2),
-    maxWidth: 480,
-    lineHeight: 10,
+    color: darkText,
   });
 
   const qrDataUrl = await QRCode.toDataURL(input.qrCodeValue, {
@@ -838,18 +897,44 @@ async function buildTicketPdfBytes(input: {
   const qrPngBytes = Buffer.from(qrDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
   const qrImage = await document.embedPng(qrPngBytes);
   page.drawImage(qrImage, {
-    x: 56,
-    y: 180,
-    width: 180,
-    height: 180,
+    x: 180,
+    y: 120,
+    width: 235,
+    height: 235,
   });
 
-  page.drawText('Present this QR at entry for scanning.', {
+  // Footer
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: 595,
+    height: 100,
+    color: cream,
+  });
+
+  page.drawText('Katina Basil Tickets', {
     x: 56,
-    y: 160,
-    size: 10,
+    y: 70,
+    size: 12,
+    font: fontBold,
+    color: darkBrown,
+  });
+
+  page.drawText(input.qrCodeValue, {
+    x: 56,
+    y: 50,
+    size: 7,
     font: fontRegular,
-    color: rgb(0.25, 0.25, 0.25),
+    color: mutedText,
+    maxWidth: 480,
+  });
+
+  page.drawText('Keep this ticket safe. It is required for entry.', {
+    x: 56,
+    y: 20,
+    size: 9,
+    font: fontRegular,
+    color: mutedText,
   });
 
   return await document.save();
