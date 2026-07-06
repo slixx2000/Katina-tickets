@@ -196,7 +196,6 @@ export function canUseBilaGateway() {
 export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCollectionRequest) {
   const requestPayload = {
     amount: Math.round(request.amount),
-    currency: request.currency,
     reference: request.reference,
     phone: request.phone,
     operator: request.provider,
