@@ -187,7 +187,7 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
 }
 
 export async function getBilaCollectionStatus(reference: string): Promise<BilaCollectionStatusResponse> {
-  const payload = await getBilaJson<BilaMobileMoneyCollection>(`/api/v1/bila/collections/${encodeURIComponent(reference)}`);
+  const payload = await getBilaJson<BilaMobileMoneyCollection>(`/api/v1/bila/collections/status/${encodeURIComponent(reference)}`);
   return {
     success: true,
     reference: payload.reference ?? reference,
