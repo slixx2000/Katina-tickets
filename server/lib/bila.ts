@@ -185,8 +185,8 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
   const payload = await postBilaJson<BilaMobileMoneyCollection>('/api/v1/bila/collections/mobile-money', {
     amount: Math.round(request.amount),
     currency: request.currency,
-    references: request.reference,
-    phones: request.phone,
+    reference: request.reference,
+    phone: request.phone,
     operator: request.provider,
     country: request.country,
     walletId: request.walletId,

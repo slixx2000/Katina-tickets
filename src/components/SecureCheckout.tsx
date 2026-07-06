@@ -109,7 +109,9 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
           customerEmail: registrationData.email,
           customerName: registrationData.fullName,
           phoneNumber: normalizedPhoneNumber,
+          phone: normalizedPhoneNumber,
           operator,
+          provider: operator,
           metadata: {
             quantity: registrationData.quantity,
             ticketType: registrationData.ticketType,

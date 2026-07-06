@@ -3221,6 +3221,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     customerName: typeof customerName === 'string' ? customerName : undefined,
     phone: normalizedPhone,
     provider: normalizedProvider,
+    rawPhone: isNonEmptyString(phoneNumber) ? phoneNumber : isNonEmptyString(phone) ? phone : undefined,
+    rawProvider: isNonEmptyString(operator) ? operator : isNonEmptyString(provider) ? provider : undefined,
     metadata: toJsonObject(metadata),
     requestBody: request.body,
   });
@@ -3247,8 +3249,6 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    const normalizedPhone = isNonEmptyString(phone) ? phone.trim() : '';
-    const normalizedProvider = isNonEmptyString(provider) ? provider.trim().toLowerCase() : '';
     if (!normalizedPhone) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
         requestId,
