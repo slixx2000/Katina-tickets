@@ -39,6 +39,8 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
 
   useEffect(() => {
     let mounted = true;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
     setTicketId(paymentReference);
     setSyncError(null);
     setIsSyncingReservation(true);
@@ -47,17 +49,12 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
     setPaymentLabel(localStatus);
 
     const resolveReservation = async () => {
-      logFrontendEvent('reservation.sync.started', {
-        paymentReference,
-        paymentStatus,
-      });
+      logFrontendEvent('reservation.sync.started', { paymentReference, paymentStatus });
 
       try {
         const response = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/reservation`);
-        logFrontendEvent('reservation.sync.response.received', {
-          paymentReference,
-          statusCode: response.status,
-        });
+        logFrontendEvent('reservation.sync.response.received', { paymentReference, statusCode: response.status });
+
         if (!response.ok) {
           if (!mounted) return;
           if (response.status === 401) {
@@ -73,10 +70,7 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
         }
 
         const payload = await response.json();
-        logFrontendEvent('reservation.sync.succeeded', {
-          paymentReference,
-          responseBody: payload,
-        });
+        logFrontendEvent('reservation.sync.succeeded', { paymentReference, responseBody: payload });
         if (!mounted) return;
 
         const status = String(payload?.paymentStatus ?? '').toUpperCase();
@@ -93,14 +87,14 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
         }
 
         if (status === 'PAID') {
-          logFrontendEvent('ticket.token.request.started', {
-            paymentReference,
-          });
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+
+          logFrontendEvent('ticket.token.request.started', { paymentReference });
           const tokenResponse = await fetch(`/api/payments/${encodeURIComponent(paymentReference)}/ticket-token`);
-          logFrontendEvent('ticket.token.response.received', {
-            paymentReference,
-            statusCode: tokenResponse.status,
-          });
+          logFrontendEvent('ticket.token.response.received', { paymentReference, statusCode: tokenResponse.status });
           if (!tokenResponse.ok) {
             if (tokenResponse.status === 401) {
               setSyncError('Your session expired. Sign in again to retrieve the ticket token.');
@@ -111,13 +105,15 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
             }
           } else {
             const tokenPayload = await tokenResponse.json();
-            logFrontendEvent('ticket.token.succeeded', {
-              paymentReference,
-              responseBody: tokenPayload,
-            });
+            logFrontendEvent('ticket.token.succeeded', { paymentReference, responseBody: tokenPayload });
             if (typeof tokenPayload?.token === 'string' && tokenPayload.token.length > 0 && mounted) {
               setTicketToken(tokenPayload.token);
             }
+          }
+        } else if (status === 'FAILED') {
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
           }
         }
       } catch (error) {
@@ -137,8 +133,17 @@ export default function ReservationConfirmed({ registrationData, selectedPackage
 
     void resolveReservation();
 
+    pollTimer = setInterval(() => {
+      if (mounted) {
+        void resolveReservation();
+      }
+    }, 5000);
+
     return () => {
       mounted = false;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
     };
   }, [paymentReference, paymentStatus, syncAttempt]);
 
