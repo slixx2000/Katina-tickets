@@ -12,6 +12,9 @@ interface AdminDashboardProps {
   stats: AdminStats;
   packages: TicketPackage[];
   currentUser: AppSessionUser;
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => Promise<void>;
   onBackToMain: () => void;
   onUpdateInventory: (updatedPkgs: TicketPackage[]) => void;
   onSignOut: () => void;
@@ -80,7 +83,7 @@ type SearchItem = {
   };
 };
 
-export default function AdminDashboard({ stats, packages, currentUser, onBackToMain, onUpdateInventory, onSignOut, onSessionRefresh }: AdminDashboardProps) {
+export default function AdminDashboard({ stats, packages, currentUser, isLoading, error, onRefresh, onBackToMain, onUpdateInventory, onSignOut, onSessionRefresh }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'7D' | '30D' | 'YTD'>('30D');
   const [activeSection, setActiveSection] = useState<'overview' | 'scanner' | 'operations' | 'security'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -293,9 +296,7 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
 
   // Dynamic calculations based on stats prop
   const activeTicketsSold = stats.ticketsSold;
-  const activeRevenue = stats.transactions
-    .filter(t => t.status === 'completed')
-    .reduce((sum, current) => sum + current.amount, stats.totalRevenue);
+  const activeRevenue = stats.totalRevenue;
 
   const sectionItems = [
     { id: 'overview', label: 'Overview', icon: BarChart },
@@ -322,9 +323,41 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
           ? 'Guest registry, inventory controls, and staff assignments.'
           : 'MFA and admin security controls.';
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 py-12 bg-[#b8c58f] dark:bg-transparent">
+        <div className="max-w-2xl w-full bg-[#4E1413] border border-[#F4F4F2]/20 p-10 text-center rounded-none shadow-lg">
+          <p className="text-sm text-[#F4F4F2]/70 uppercase tracking-[0.3em] mb-4">Loading admin analytics</p>
+          <div className="h-4 bg-[#F4F4F2]/10 rounded-full overflow-hidden mb-4">
+            <div className="h-full w-3/4 bg-[#F4F4F2] animate-pulse" />
+          </div>
+          <p className="text-base text-[#F4F4F2]/80">Fetching the latest event sales data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 py-12 bg-[#b8c58f] dark:bg-transparent">
+        <div className="max-w-2xl w-full bg-[#4E1413] border border-red-400/25 p-10 text-center rounded-none shadow-lg">
+          <p className="text-sm text-red-200 uppercase tracking-[0.3em] mb-4">Dashboard error</p>
+          <p className="text-base text-[#F4F4F2]/90 mb-6">{error}</p>
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            className="px-6 py-3 bg-[#F4F4F2] text-[#4E1413] font-bold uppercase tracking-[0.2em] rounded-none"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#b8c58f] dark:bg-transparent">
-    <div className="relative z-10 pt-32 pb-32 md:pb-24 px-6 md:px-20 max-w-7xl mx-auto w-full text-[#F4F4F2] font-sans min-h-screen">
+      <div className="relative z-10 pt-32 pb-32 md:pb-24 px-6 md:px-20 max-w-7xl mx-auto w-full text-[#F4F4F2] font-sans min-h-screen">
       
       {/* Background radial soft light blur */}
       <div className="fixed top-0 left-1/4 w-[800px] h-[800px] bg-[#4E1413]/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
@@ -352,6 +385,14 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
             className="px-6 py-3 border border-[#F4F4F2]/30 hover:border-[#F4F4F2] hover:bg-[#F4F4F2]/10 bg-transparent rounded-none tracking-widest font-label-caps cursor-pointer transition-all duration-300 font-bold"
           >
             EXPORT DATA
+          </button>
+          <button 
+            type="button"
+            onClick={() => void onRefresh()}
+            className="px-6 py-3 border border-[#F4F4F2]/30 hover:border-[#F4F4F2] hover:bg-[#F4F4F2]/10 bg-transparent rounded-none tracking-widest font-label-caps cursor-pointer transition-all duration-300 font-bold inline-flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            REFRESH
           </button>
           <button 
             type="button"
@@ -516,12 +557,12 @@ export default function AdminDashboard({ stats, packages, currentUser, onBackToM
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-4xl sm:text-5xl font-display text-[#F4F4F2] font-bold">
-              {stats.ticketsTotal - activeTicketsSold}
+              {stats.remainingInventory.ordinary + stats.remainingInventory.vip}
             </span>
             <span className="text-xs text-[#F4F4F2]/70 font-label-caps tracking-widest font-bold">SEATS LEFT</span>
           </div>
           <p className="font-body-md text-xs text-[#F4F4F2]/60 mt-2 font-medium tracking-wide">
-            Priority allocations limits remaining: {packages.find(p => p.id === 'vip')?.remaining || 300}
+            Priority allocations limits remaining: {stats.remainingInventory.vip}
           </p>
         </div>
 

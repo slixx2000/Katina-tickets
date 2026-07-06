@@ -96,6 +96,8 @@ export default function App() {
   const [registrationData, setRegistrationData] = useState<RegistrationData | null>(null);
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [adminStats, setAdminStats] = useState<AdminStats>(INITIAL_STATS);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
   const hasAuthenticatedCustomer = Boolean(currentUser);
   const isAdminVisible = canEnterAdminConsole(currentUser);
   const areTicketsSoldOut = packages.every((pkg) => pkg.remaining <= 0);
@@ -492,41 +494,65 @@ export default function App() {
     setCurrentUser(await fetchServerSession());
   };
 
+  const syncAdminStats = async () => {
+    if (currentScreen !== 'admin' || !isAdminVisible) {
+      return;
+    }
+
+    setAdminLoading(true);
+    setAdminError(null);
+
+    try {
+      const response = await fetch('/api/admin/overview', {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        setAdminError(
+          response.status === 401
+            ? 'Sign in as an admin to view dashboard analytics.'
+            : response.status === 403
+              ? 'You are not authorized to view this dashboard.'
+              : 'Unable to load admin overview.'
+        );
+        return;
+      }
+
+      const payload = await response.json();
+      if (!payload?.stats) {
+        setAdminError('Admin overview returned an unexpected response.');
+        return;
+      }
+
+      setAdminStats(payload.stats as AdminStats);
+      setAdminError(null);
+    } catch {
+      setAdminError('Network error while loading admin analytics.');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (currentScreen !== 'admin' || !isAdminVisible) {
       return;
     }
 
     let mounted = true;
-
-    const syncAdminStats = async () => {
-      try {
-        const response = await fetch('/api/admin/overview', {
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const payload = await response.json();
-        if (!mounted || !payload?.stats) {
-          return;
-        }
-
-        setAdminStats(payload.stats as AdminStats);
-      } catch {
-        // Keep existing state if admin overview fails to load.
-      }
-    };
-
     void syncAdminStats();
+
+    const intervalId = window.setInterval(() => {
+      if (mounted) {
+        void syncAdminStats();
+      }
+    }, 45000);
 
     return () => {
       mounted = false;
+      window.clearInterval(intervalId);
     };
   }, [currentScreen, isAdminVisible]);
 
@@ -659,6 +685,9 @@ export default function App() {
                   stats={adminStats} 
                   packages={packages} 
                   currentUser={currentUser}
+                  isLoading={adminLoading}
+                  error={adminError}
+                  onRefresh={syncAdminStats}
                   onBackToMain={() => setCurrentScreen('landing')}
                   onUpdateInventory={(updatedPkgs) => setPackages(updatedPkgs)}
                   onSessionRefresh={refreshCurrentUser}
