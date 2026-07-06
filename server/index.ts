@@ -19,7 +19,7 @@ import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared
 import { isPrismaAvailable, prisma } from './lib/prisma.js';
 import { PrismaSessionStore } from './auth/prisma-session-store.js';
 import { PrismaAuthRepository } from './auth/prisma-repository.js';
-import { canUseBilaGateway, createBilaMobileMoneyCollection, getBilaCollectionStatus, getBilaWalletId, getBilaCountry, parseBilaWebhookEvent, verifyBilaWebhookSignature } from './lib/bila.js';
+import { canUseBilaGateway, createBilaMobileMoneyCollection, getBilaCollectionStatus, getBilaWalletId, getBilaCountry, parseBilaWebhookEvent, verifyBilaWebhookSignature, getBilaApiBaseUrl } from './lib/bila.js';
 import {
   buildOtpAuthUri,
   decryptMfaSecret,
@@ -3235,6 +3235,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
         reason: 'invalid_amount',
         amount,
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'invalid_amount', amount });
       response.status(400).json({success: false, message: 'A valid amount is required.'});
       return;
     }
@@ -3245,6 +3246,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
         userId: principal.userId,
         reason: 'missing_currency_or_description',
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'missing_currency_or_description' });
       response.status(400).json({success: false, message: 'Currency and description are required.'});
       return;
     }
@@ -3255,6 +3257,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
         userId: principal.userId,
         reason: 'missing_phone_number',
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'missing_phone_number' });
       response.status(400).json({ success: false, message: 'A mobile money phone number is required.' });
       return;
     }
@@ -3267,6 +3270,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
         reason: 'invalid_provider',
         provider: normalizedProvider,
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'invalid_provider', provider: normalizedProvider });
       response.status(400).json({ success: false, message: 'A valid mobile money provider is required.' });
       return;
     }
@@ -3281,15 +3285,26 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
         reason: 'missing_ticket_metadata',
         metadata: normalizedMetadata,
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'missing_ticket_metadata', metadata: normalizedMetadata });
       response.status(400).json({ success: false, message: 'Payment metadata must include ticketType and quantity.' });
       return;
     }
+
+    // Log environment presence before attempting gateway
+    logStructuredEvent('debug', '[PAYMENT]', route, 'env.check', {
+      requestId,
+      userId: principal.userId,
+      BILA_API_BASE_URL_defined: Boolean(process.env.BILA_API_BASE_URL),
+      BILA_SECRET_KEY_defined: Boolean(process.env.BILA_SECRET_KEY),
+      BILA_WALLET_ID_defined: Boolean(process.env.BILA_WALLET_ID),
+    });
 
     if (!canUseBilaGateway()) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'gateway.unavailable', {
         requestId,
         userId: principal.userId,
       });
+      logStructuredEvent('debug', '[PAYMENT]', route, 'early.return', { requestId, userId: principal.userId, reason: 'gateway.unavailable' });
       response.status(503).json({ success: false, message: 'Payment provider not configured on the server.' });
       return;
     }
@@ -3342,6 +3357,37 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       metadata: payload.metadata,
     });
 
+    // Log that we are about to call Bila and preview the non-sensitive request body
+    try {
+      const bilaPreview = {
+        amount: payload.amount,
+        currency: payload.currency,
+        description: payload.description,
+        customerEmail: payload.customerEmail,
+        customerName: payload.customerName,
+        phone: payload.phone,
+        provider: payload.provider,
+        reference,
+        metadata: payload.metadata,
+        callback_url: process.env.BILA_WEBHOOK_URL?.trim() || undefined,
+        country: getBilaCountry(),
+        bearer: 'merchant',
+        narration: payload.description,
+      } as Record<string, unknown>;
+
+      logStructuredEvent('info', '[PAYMENT]', route, 'bila.call.pre', {
+        requestId,
+        userId: principal.userId,
+        bilaApiBaseUrlDefined: Boolean(process.env.BILA_API_BASE_URL),
+        bilaSecretDefined: Boolean(process.env.BILA_SECRET_KEY),
+        bilaWalletDefined: Boolean(process.env.BILA_WALLET_ID),
+        finalUrlPreview: (typeof getBilaApiBaseUrl === 'function') ? getBilaApiBaseUrl() + '/api/v1/bila/collections/mobile-money' : undefined,
+        bilaRequestPreview: bilaPreview,
+      });
+    } catch (e) {
+      logStructuredEvent('warn', '[PAYMENT]', route, 'bila.call.pre.logging.failed', { requestId, userId: principal.userId, error: e instanceof Error ? e.message : String(e) });
+    }
+
     const collection = await createBilaMobileMoneyCollection({
       amount: payload.amount,
       currency: payload.currency,
@@ -3359,6 +3405,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       narration: payload.description,
       customerNames: payload.customerName,
     });
+
+    logStructuredEvent('info', '[PAYMENT]', route, 'bila.call.post', { requestId, userId: principal.userId, bilaCollectionId: collection.id, bilaStatus: collection.status });
 
     if (collection.id) {
       await updatePaymentIntentFromWebhook({

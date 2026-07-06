@@ -47,7 +47,7 @@ export type BilaCollectionStatusResponse = {
   status?: BilaPaymentStatus;
 };
 
-function getBilaApiBaseUrl() {
+export function getBilaApiBaseUrl() {
   const configuredBaseUrl = process.env.BILA_API_BASE_URL?.trim();
   if (configuredBaseUrl) {
     return configuredBaseUrl.replace(/\/$/, '');
@@ -135,11 +135,23 @@ async function parseJsonResponse(response: Response) {
 }
 
 async function postBilaJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`${getBilaApiBaseUrl()}${path}`, {
+  const finalUrl = `${getBilaApiBaseUrl()}${path}`;
+  // Log non-sensitive request information for debugging (do not log secrets)
+  try {
+    const safeBody = {...body};
+    if ('walletId' in safeBody) delete (safeBody as Record<string, unknown>).walletId;
+    console.info('[BILA] outgoing.request', { finalUrl, body: safeBody, bilaApiBaseUrlDefined: Boolean(process.env.BILA_API_BASE_URL), bilaSecretDefined: Boolean(process.env.BILA_SECRET_KEY), bilaWalletDefined: Boolean(process.env.BILA_WALLET_ID) });
+  } catch (e) {
+    console.warn('[BILA] outgoing.request.logging.failed', String(e));
+  }
+
+  const response = await fetch(finalUrl, {
     method: 'POST',
     headers: buildBilaHeaders(),
     body: JSON.stringify(body),
   });
+
+  console.info('[BILA] outgoing.response', { finalUrl, status: response.status });
 
   const payload = await parseJsonResponse(response);
   if (!response.ok) {
@@ -182,7 +194,7 @@ export function canUseBilaGateway() {
 }
 
 export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCollectionRequest) {
-  const payload = await postBilaJson<BilaMobileMoneyCollection>('/api/v1/bila/collections/mobile-money', {
+  const requestPayload = {
     amount: Math.round(request.amount),
     currency: request.currency,
     reference: request.reference,
@@ -195,7 +207,18 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
     customerNames: request.customerNames ?? request.customerName,
     metadata: request.metadata,
     callback_url: request.callback_url,
-  });
+  } as Record<string, unknown>;
+
+  // Log prepared payload without secrets
+  try {
+    const safePayload = {...requestPayload};
+    if ('walletId' in safePayload) delete safePayload.walletId;
+    console.info('[BILA] create.collection.pre', { path: '/api/v1/bila/collections/mobile-money', safePayload, bilaApiBaseUrlDefined: Boolean(process.env.BILA_API_BASE_URL), bilaSecretDefined: Boolean(process.env.BILA_SECRET_KEY), bilaWalletDefined: Boolean(process.env.BILA_WALLET_ID) });
+  } catch (e) {
+    console.warn('[BILA] create.collection.pre.logging.failed', String(e));
+  }
+
+  const payload = await postBilaJson<BilaMobileMoneyCollection>('/api/v1/bila/collections/mobile-money', requestPayload);
 
   return {
     id: payload.id ?? payload.reference ?? request.reference,
