@@ -1530,11 +1530,18 @@ async function queueTicketDeliveryAfterPersistence(reference: string) {
     where: { paymentReference: reference },
     select: {
       id: true,
+      fullName: true,
       email: true,
+      ticketType: true,
       quantity: true,
+      seatDetails: true,
       tickets: {
         select: {
           id: true,
+          ticketId: true,
+          qrCodeValue: true,
+          pdfStoragePath: true,
+          pdfChecksum: true,
         },
       },
     },
@@ -1556,6 +1563,67 @@ async function queueTicketDeliveryAfterPersistence(reference: string) {
     ticketCount: reservation.tickets.length,
     providerConfigured: hasValue(process.env.TICKET_DELIVERY_PROVIDER),
   });
+
+  const seatDetails = Array.isArray(reservation.seatDetails)
+    ? reservation.seatDetails.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  for (const ticket of reservation.tickets) {
+    if (ticket.pdfStoragePath && ticket.pdfChecksum) {
+      continue;
+    }
+
+    try {
+      const storagePath = buildTicketPdfStoragePath(reference, ticket.ticketId);
+
+      const pdfBytes = await buildTicketPdfBytes({
+        reference,
+        fullName: reservation.fullName,
+        email: reservation.email,
+        ticketType: fromInventoryEnum(reservation.ticketType),
+        quantity: reservation.quantity,
+        seatDetails,
+        qrCodeValue: ticket.qrCodeValue || signTicketToken(reference),
+      });
+
+      const checksum = computeSha256Hex(pdfBytes);
+      const uploaded = await uploadTicketPdfToStorage(storagePath, pdfBytes);
+
+      if (uploaded) {
+        await prisma.ticket.update({
+          where: { id: ticket.id },
+          data: {
+            pdfStoragePath: storagePath,
+            pdfChecksum: checksum,
+            pdfGeneratedAt: new Date(),
+          },
+        });
+
+        logStructuredEvent('info', '[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'pdf.eager.generated', {
+          paymentReference: reference,
+          ticketId: ticket.ticketId,
+        });
+      } else {
+        logStructuredEvent('warn', '[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'pdf.eager.upload.failed', {
+          paymentReference: reference,
+          ticketId: ticket.ticketId,
+        });
+
+        await enqueueFailedPdfUpload({
+          paymentReference: reference,
+          ticketRecordId: ticket.id,
+          ticketPublicId: ticket.ticketId,
+          storagePath,
+          errorMessage: 'Eager PDF generation upload failed after payment finalization.',
+        });
+      }
+    } catch (error) {
+      logPaymentError('[TICKET]', 'server.queueTicketDeliveryAfterPersistence', 'pdf.eager.generation.failed', error, {
+        paymentReference: reference,
+        ticketId: ticket.ticketId,
+      });
+    }
+  }
 
   return true;
 }
