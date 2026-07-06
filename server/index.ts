@@ -3652,8 +3652,8 @@ app.post(
         requestId,
         signatureHeader: signature,
       });
-
-      const verificationPassed = verifyBilaWebhookSignature(rawBody.toString('utf8'), signature ?? '');
+      const timestamp = request.header('x-bila-timestamp');
+      const verificationPassed = verifyBilaWebhookSignature(rawBody.toString('utf8'), signature ?? '', timestamp ?? undefined);
       if (!verificationPassed) {
         logStructuredEvent('warn', '[WEBHOOK]', route, 'signature.verification.failed', {
           requestId,

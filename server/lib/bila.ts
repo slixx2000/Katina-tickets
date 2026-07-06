@@ -288,7 +288,7 @@ export function parseBilaWebhookEvent(event: unknown) {
  * Verify Bila webhook signature using HMAC-SHA256.
  * Follows the same pattern as the current webhook signature verification in server/index.ts.
  */
-export function verifyBilaWebhookSignature(rawBody: string, signatureHeader: string): boolean {
+export function verifyBilaWebhookSignature(rawBody: string, signatureHeader: string, timestampHeader?: string): boolean {
   const secret = process.env.BILA_WEBHOOK_SECRET?.trim();
   if (!secret) {
     console.warn('[WEBHOOK] BILA_WEBHOOK_SECRET not configured');
@@ -296,11 +296,16 @@ export function verifyBilaWebhookSignature(rawBody: string, signatureHeader: str
   }
 
   try {
-    // Bila sends signature in a header (typically x-webhook-signature or similar)
-    // Format: typically "whsec_..." or similar
-    const expectedSignature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    
-    // Remove any "whsec_" prefix if present in the header
+    const signedPayload = timestampHeader ? `${timestampHeader}.${rawBody}` : rawBody;
+
+    console.info('[WEBHOOK] signature.debug', {
+        signedPayloadPreview: signedPayload.slice(0, 50),
+        timestampReceived: timestampHeader,
+    });
+
+
+    const expectedSignature = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+
     const cleanedHeader = signatureHeader.replace(/^sha256=/, '').replace(/^whsec_/, '');
 
     if (expectedSignature.length !== cleanedHeader.length) {
@@ -310,8 +315,7 @@ export function verifyBilaWebhookSignature(rawBody: string, signatureHeader: str
       });
       return false;
     }
-    
-    // Use constant-time comparison to prevent timing attacks
+
     return crypto.timingSafeEqual(
       Buffer.from(expectedSignature),
       Buffer.from(cleanedHeader),
