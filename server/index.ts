@@ -1659,6 +1659,24 @@ async function updatePaymentIntentFromWebhook(input: {
   }
 }
 
+async function resolvePaymentReference(providerPaymentId?: string, transactionId?: string): Promise<string | null> {
+  if (!isPrismaAvailable()) return null;
+
+  const conditions = [
+    providerPaymentId ? { providerPaymentId } : undefined,
+    transactionId ? { providerPaymentId: transactionId } : undefined,
+  ].filter(Boolean);
+
+  if (conditions.length === 0) return null;
+
+  const match = await prisma.paymentTransaction.findFirst({
+    where: { OR: conditions as any },
+    select: { reference: true },
+  });
+
+  return match?.reference ?? null;
+}
+
 function mapBilaStatusToPaymentStatus(status: string | undefined) {
   if (status === 'completed') {
     return 'PAID' as const;
@@ -3733,6 +3751,26 @@ app.post(
         eventType: parsed.event,
       });
 
+      let resolvedReference = parsed.reference;
+      if (!resolvedReference) {
+        resolvedReference = await resolvePaymentReference(parsed.providerPaymentId, parsed.transactionId);
+        if (!resolvedReference) {
+          logStructuredEvent('warn', '[WEBHOOK]', route, 'reference.not.found', {
+            requestId,
+            providerPaymentId: parsed.providerPaymentId,
+            transactionId: parsed.transactionId,
+          });
+          response.status(404).json({ success: false, message: 'No matching payment found for this webhook.' });
+          logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
+            requestId,
+            httpStatus: 404,
+            responseBody: { success: false, message: 'No matching payment found for this webhook.' },
+            elapsedMs: Date.now() - startedAt,
+          });
+          return;
+        }
+      }
+
       const payload = toJsonObject(event) ?? {};
       const inserted = await persistWebhookDelivery({
         providerEventId: parsed.providerEventId,
@@ -3743,7 +3781,7 @@ app.post(
       if (!inserted) {
         logStructuredEvent('info', '[WEBHOOK]', route, 'duplicate.webhook.received', {
           requestId,
-          paymentReference: parsed.reference,
+          paymentReference: resolvedReference,
           eventId: parsed.providerEventId,
         });
         response.json({ success: true, received: true, duplicate: true });
@@ -3757,14 +3795,14 @@ app.post(
       }
 
       const finalized = await applyPaymentStatusAndFinalize({
-        reference: parsed.reference,
+        reference: resolvedReference,
         providerPaymentId: parsed.providerPaymentId,
         status: mapBilaStatusToPaymentStatus(parsed.status),
       });
 
       logEvent('info', 'payment.webhook.processed', {
         eventId: parsed.providerEventId,
-        reference: parsed.reference,
+        reference: resolvedReference,
         status: parsed.status,
         transactionUpdated: finalized.transactionUpdated,
         reservationFinalized: finalized.reservationFinalized,
@@ -3774,7 +3812,7 @@ app.post(
 
       logStructuredEvent('info', '[WEBHOOK]', route, 'response.sent', {
         requestId,
-        paymentReference: parsed.reference,
+        paymentReference: resolvedReference,
         transactionId: parsed.providerPaymentId,
         paymentStatus: parsed.status,
         httpStatus: 200,
@@ -3783,7 +3821,7 @@ app.post(
           success: true,
           received: true,
           eventId: parsed.providerEventId,
-          reference: parsed.reference,
+          reference: resolvedReference,
           status: parsed.status,
           transactionUpdated: finalized.transactionUpdated,
           reservationCreated: finalized.reservationFinalized,
@@ -3795,7 +3833,7 @@ app.post(
         success: true,
         received: true,
         eventId: parsed.providerEventId,
-        reference: parsed.reference,
+        reference: resolvedReference,
         status: parsed.status,
         transactionUpdated: finalized.transactionUpdated,
         reservationCreated: finalized.reservationFinalized,

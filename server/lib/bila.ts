@@ -263,6 +263,12 @@ export function parseBilaWebhookEvent(event: unknown) {
       ? payload.id
       : undefined;
 
+  const transactionId = typeof data.transactionId === 'string'
+    ? data.transactionId
+    : typeof payload.transactionId === 'string'
+      ? payload.transactionId
+      : undefined;
+
   const status = normalizeBilaPaymentStatus(
     typeof data.status === 'string' ? data.status : typeof payload.status === 'string' ? payload.status : undefined,
   );
@@ -271,7 +277,7 @@ export function parseBilaWebhookEvent(event: unknown) {
     ? payload.eventId
     : crypto.createHash('sha1').update(JSON.stringify(payload)).digest('hex');
 
-  if (!reference) {
+  if (!reference && !providerPaymentId && !transactionId) {
     return null;
   }
 
@@ -279,6 +285,7 @@ export function parseBilaWebhookEvent(event: unknown) {
     providerEventId: eventId,
     reference,
     providerPaymentId,
+    transactionId,
     status,
     event: eventType,
   };
