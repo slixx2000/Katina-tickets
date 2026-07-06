@@ -19,7 +19,7 @@ import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared
 import { isPrismaAvailable, prisma } from './lib/prisma.js';
 import { PrismaSessionStore } from './auth/prisma-session-store.js';
 import { PrismaAuthRepository } from './auth/prisma-repository.js';
-import { canUseBilaGateway, getBilaCollectionStatus, parseBilaWebhookEvent, verifyBilaWebhookSignature } from './lib/bila.js';
+import { canUseBilaGateway, createBilaMobileMoneyCollection, getBilaCollectionStatus, getBilaWalletId, getBilaCountry, parseBilaWebhookEvent, verifyBilaWebhookSignature } from './lib/bila.js';
 import {
   buildOtpAuthUri,
   decryptMfaSecret,
@@ -39,6 +39,8 @@ type BilaPaymentRequest = {
   phone?: unknown;
   provider?: unknown;
   metadata?: unknown;
+  phoneNumber?: unknown;
+  operator?: unknown;
 };
 
 type RequestWithRawBody = Request & {
@@ -3184,7 +3186,30 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     return;
   }
 
-  const {amount, currency, description, customerEmail, customerName, phone, provider, metadata} = request.body;
+  const {
+    amount,
+    currency,
+    description,
+    customerEmail,
+    customerName,
+    phone,
+    provider,
+    metadata,
+    phoneNumber,
+    operator,
+  } = request.body;
+
+  const normalizedPhone = isNonEmptyString(phone)
+    ? phone.trim()
+    : isNonEmptyString(phoneNumber)
+      ? String(phoneNumber).trim()
+      : '';
+
+  const normalizedProvider = isNonEmptyString(provider)
+    ? provider.trim().toLowerCase()
+    : isNonEmptyString(operator)
+      ? String(operator).trim().toLowerCase()
+      : '';
 
   logStructuredEvent('info', '[PAYMENT]', route, 'request.received', {
     requestId,
@@ -3194,8 +3219,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     description: typeof description === 'string' ? description : undefined,
     customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
     customerName: typeof customerName === 'string' ? customerName : undefined,
-    phone: typeof phone === 'string' ? phone : undefined,
-    provider: typeof provider === 'string' ? provider : undefined,
+    phone: normalizedPhone,
+    provider: normalizedProvider,
     metadata: toJsonObject(metadata),
     requestBody: request.body,
   });
@@ -3234,7 +3259,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    if (!['mtn', 'airtel'].includes(normalizedProvider)) {
+    const validProviders = ['mtn', 'airtel', 'zamtel', 'vodacom'];
+    if (!validProviders.includes(normalizedProvider)) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
         requestId,
         userId: principal.userId,
@@ -3276,7 +3302,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       customerEmail?: string;
       customerName?: string;
       phone: string;
-      provider: 'mtn' | 'airtel';
+      provider: 'mtn' | 'airtel' | 'zamtel' | 'vodacom';
       metadata?: Record<string, unknown>;
       reference: string;
     } = {
@@ -3286,7 +3312,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       customerEmail: isNonEmptyString(customerEmail) ? customerEmail.trim() : undefined,
       customerName: isNonEmptyString(customerName) ? customerName.trim() : undefined,
       phone: normalizedPhone,
-      provider: normalizedProvider as 'mtn' | 'airtel',
+      provider: normalizedProvider as 'mtn' | 'airtel' | 'zamtel' | 'vodacom',
       metadata: normalizedMetadata,
       reference,
     };
@@ -3316,6 +3342,40 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       metadata: payload.metadata,
     });
 
+    const collection = await createBilaMobileMoneyCollection({
+      amount: payload.amount,
+      currency: payload.currency,
+      description: payload.description,
+      customerEmail: payload.customerEmail,
+      customerName: payload.customerName,
+      phone: payload.phone,
+      provider: payload.provider,
+      reference,
+      metadata: payload.metadata,
+      callback_url: process.env.BILA_WEBHOOK_URL?.trim() || undefined,
+      walletId: getBilaWalletId(),
+      country: getBilaCountry(),
+      bearer: 'merchant',
+      narration: payload.description,
+      customerNames: payload.customerName,
+    });
+
+    if (collection.id) {
+      await updatePaymentIntentFromWebhook({
+        reference,
+        providerPaymentId: collection.id,
+        status: 'PENDING',
+      });
+    }
+
+    if (collection.status === 'completed') {
+      await applyPaymentStatusAndFinalize({
+        reference,
+        providerPaymentId: collection.id,
+        status: 'PAID',
+      });
+    }
+
     await emitAuditEvent({
       name: 'SESSION_CREATED',
       actorUserId: principal.userId,
@@ -3332,23 +3392,29 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       paymentReference: reference,
       amount: payload.amount,
       currency: payload.currency,
+      bilaReference: collection.id,
+      providerStatus: collection.status,
       httpStatus: 200,
       elapsedMs: Date.now() - startedAt,
       responseBody: {
         success: true,
-        message: 'Payment reference reserved. Proceed with payment verification.',
+        message: 'Bila payment request created successfully. Check your mobile wallet for the approval prompt.',
         reference,
         amount: payload.amount,
         currency: payload.currency,
+        bilaReference: collection.id,
+        status: collection.status,
       },
     });
 
     response.json({
       success: true,
-      message: 'Payment reference reserved. Proceed with payment verification.',
+      message: 'Bila payment request created successfully. Check your mobile wallet for the approval prompt.',
       reference,
-      amount,
+      amount: payload.amount,
       currency: payload.currency,
+      bilaReference: collection.id,
+      status: collection.status,
       customerEmail: payload.customerEmail,
       customerName: payload.customerName,
       phone: payload.phone,

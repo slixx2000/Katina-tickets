@@ -21,6 +21,7 @@ const MOBILE_MONEY_OPERATORS = [
   { value: 'mtn', label: 'MTN' },
   { value: 'airtel', label: 'Airtel' },
   { value: 'zamtel', label: 'Zamtel' },
+  { value: 'vodacom', label: 'Vodacom' },
 ] as const;
 
 function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
@@ -36,10 +37,8 @@ function logFrontendEvent(step: string, data: Record<string, unknown> = {}) {
 }
 
 export default function SecureCheckout({ registrationData, selectedPackage, onSubmit }: SecureCheckoutProps) {
-  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
-  const [isLaunchingWidget, setIsLaunchingWidget] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(registrationData.phone || '');
-  const [operator, setOperator] = useState<'mtn' | 'airtel' | 'zamtel'>('mtn');
+  const [operator, setOperator] = useState<'mtn' | 'airtel' | 'zamtel' | 'vodacom'>('mtn');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutOutcome, setCheckoutOutcome] = useState<CheckoutOutcome | null>(null);
@@ -49,30 +48,6 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
   const basePriceTimesQty = selectedPackage.price * registrationData.quantity;
   const taxesFees = Math.round(basePriceTimesQty * 0.01);
   const grandTotal = basePriceTimesQty + taxesFees;
-  const bilaPublicKey = import.meta.env.VITE_BILA_PUBLIC_KEY;
-  const widgetScriptSrc = import.meta.env.MODE === 'production'
-    ? 'https://widget.usebila.com/v1/embed.js'
-    : 'https://widget.usebila.com/v1/embed.js';
-
-  React.useEffect(() => {
-    const existingScript = document.querySelector(`script[src="${widgetScriptSrc}"]`);
-    if (existingScript) {
-      setIsScriptLoaded(true);
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = widgetScriptSrc;
-    script.async = true;
-    script.onload = () => setIsScriptLoaded(true);
-    script.onerror = () => setCheckoutError('Unable to load the Bila payment widget.');
-    document.body.appendChild(script);
-
-    return () => {
-      script.onload = null;
-      script.onerror = null;
-    };
-  }, [widgetScriptSrc]);
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,18 +81,8 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
       return;
     }
 
-    if (!bilaPublicKey) {
-      logFrontendEvent('checkout.validation.failed', {
-        paymentReference,
-        reason: 'missing_bila_public_key',
-      });
-      setCheckoutError('Missing Bila public key for the payment widget.');
-      return;
-    }
-
     submitLockRef.current = true;
     setIsProcessingPayment(true);
-    setIsLaunchingWidget(true);
     setCheckoutError(null);
 
     try {
@@ -131,7 +96,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
         operator,
       });
 
-      const launchResponse = await fetch('/api/pay', {
+      const payResponse = await fetch('/api/pay', {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -153,146 +118,39 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
         }),
       });
 
-      const launchPayload = await launchResponse.json().catch(() => null);
-      if (!launchResponse.ok || !launchPayload?.reference) {
+      const payload = await payResponse.json().catch(() => null);
+      if (!payResponse.ok || !payload?.reference) {
         logFrontendEvent('payment.session.request.failed', {
           paymentReference,
-          statusCode: launchResponse.status,
-          responseBody: launchPayload,
+          statusCode: payResponse.status,
+          responseBody: payload,
         });
-        setCheckoutError(launchPayload?.message || 'Payment could not be started. Please retry.');
+        setCheckoutError(payload?.message || 'Payment could not be started. Please retry.');
         return;
       }
 
-      const reference = String(launchPayload.reference);
+      const reference = String(payload.reference);
+      const status = String(payload.status || 'pending').toLowerCase() as CheckoutOutcome['status'];
+      const message = status === 'completed'
+        ? 'Payment complete. Your reservation has been secured.'
+        : status === 'failed'
+          ? 'Payment failed. Please try again or choose a different wallet.'
+          : 'Payment request sent. Confirm the prompt in your mobile wallet.';
+
       logFrontendEvent('payment.session.request.succeeded', {
         paymentReference: reference,
-        statusCode: launchResponse.status,
-        responseBody: launchPayload,
+        status,
+        responseBody: payload,
       });
 
-      const bila = (window as Window & { BilaWidget?: { open: (args: Record<string, unknown>) => void } }).BilaWidget;
-      if (!bila) {
-        logFrontendEvent('widget.launch.failed', {
-          paymentReference: reference,
-          reason: 'widget_unavailable',
-        });
-        setCheckoutError('The Bila payment widget is not available.');
-        return;
-      }
-
-      const [firstName, ...restNames] = registrationData.fullName.trim().split(/\s+/);
-      const lastName = restNames.join(' ').trim() || 'Guest';
-
-      logFrontendEvent('widget.opened', {
-        paymentReference: reference,
-        bilaPublicKey,
-        amount: grandTotal,
-        currency: 'ZMW',
-      });
-
-      bila.open({
-        key: bilaPublicKey,
+      const submission: PaymentData = {
+        method: 'mobilemoney',
         reference,
-        email: registrationData.email,
-        amount: grandTotal,
-        currency: 'ZMW',
-        label: 'Katina Basil Checkout',
-        method: 'mobile_money',
-        provider: operator,
-        customer: {
-          firstName: firstName || 'Guest',
-          lastName,
-          phone: normalizedPhoneNumber,
-        },
-        success_url: import.meta.env.VITE_BILA_SUCCESS_URL,
-        cancel_url: import.meta.env.VITE_BILA_CANCEL_URL,
-        onSuccess: async (response: { reference?: string }) => {
-          const verifiedReference = response.reference || reference;
-          logFrontendEvent('payment.authorized', {
-            paymentReference: verifiedReference,
-            sourceReference: reference,
-          });
+        status,
+      };
 
-          try {
-            logFrontendEvent('payment.verification.request.started', {
-              paymentReference: verifiedReference,
-            });
-            const verifyResponse = await fetch(`/api/payments/${encodeURIComponent(verifiedReference)}/bila-status`, {
-              credentials: 'include',
-            });
-            const verifyPayload = await verifyResponse.json().catch(() => null);
-            const verifyStatus = String(verifyPayload?.status || '').toUpperCase();
-            const normalizedStatus = verifyStatus === 'PAID' || verifyStatus === 'SUCCESSFUL' || verifyStatus === 'SUCCESS'
-              ? 'completed'
-              : verifyStatus === 'FAILED'
-                ? 'failed'
-                : 'pending';
-
-            logFrontendEvent('payment.verification.response.received', {
-              paymentReference: verifiedReference,
-              statusCode: verifyResponse.status,
-              verifyStatus,
-              normalizedStatus,
-              responseBody: verifyPayload,
-            });
-
-            const submission: PaymentData = {
-              method: 'mobilemoney',
-              reference: verifiedReference,
-              status: normalizedStatus,
-            };
-
-            setPendingSubmission(submission);
-            if (normalizedStatus === 'completed') {
-              logFrontendEvent('payment.success.detected', {
-                paymentReference: verifiedReference,
-              });
-            } else if (normalizedStatus === 'failed') {
-              logFrontendEvent('payment.failure.detected', {
-                paymentReference: verifiedReference,
-              });
-            } else {
-              logFrontendEvent('payment.pending.detected', {
-                paymentReference: verifiedReference,
-              });
-            }
-            setCheckoutOutcome({
-              status: normalizedStatus,
-              reference: verifiedReference,
-              message: normalizedStatus === 'completed'
-                ? 'Payment complete. Your reservation has been secured.'
-                : 'Payment is pending provider confirmation. Continue once the payment is confirmed.',
-            });
-          } catch (error) {
-            logFrontendEvent('payment.verification.error', {
-              paymentReference: verifiedReference,
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
-            setCheckoutOutcome({
-              status: 'pending',
-              reference: verifiedReference,
-              message: 'Payment confirmation could not be verified yet. Please try again.',
-            });
-          }
-        },
-        onClose: () => {
-          logFrontendEvent('widget.closed', {
-            paymentReference: reference,
-          });
-          setCheckoutError('Payment window was closed before completion.');
-        },
-        onConfirmationPending: () => {
-          logFrontendEvent('widget.confirmation.pending', {
-            paymentReference: reference,
-          });
-          setCheckoutOutcome({
-            status: 'pending',
-            reference,
-            message: 'Payment is awaiting confirmation from Bila.',
-          });
-        },
-      });
+      setPendingSubmission(submission);
+      setCheckoutOutcome({ status, reference, message });
     } catch (error) {
       logFrontendEvent('checkout.error', {
         paymentReference,
@@ -301,7 +159,6 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
       setCheckoutError('Unexpected checkout error. Please retry in a moment.');
     } finally {
       setIsProcessingPayment(false);
-      setIsLaunchingWidget(false);
       submitLockRef.current = false;
     }
   };
@@ -468,7 +325,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
                 <span className="font-label-caps text-[10px] uppercase tracking-[0.2em]">Operator</span>
                 <select
                   value={operator}
-                  onChange={(event) => setOperator(event.target.value as 'mtn' | 'airtel' | 'zamtel')}
+                  onChange={(event) => setOperator(event.target.value as 'mtn' | 'airtel' | 'zamtel' | 'vodacom')}
                   className="bg-transparent border-0 border-b border-[color:var(--checkout-border)] px-0 py-2 text-[color:var(--checkout-text)] focus:outline-none focus:border-[color:var(--checkout-text)]"
                 >
                   {MOBILE_MONEY_OPERATORS.map((item) => (
@@ -496,10 +353,10 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
             <div className="pt-8">
               <button
                 type="submit"
-                disabled={isProcessingPayment || !isScriptLoaded}
+                disabled={isProcessingPayment}
                 className="w-full bg-[color:var(--checkout-submit-bg)] hover:bg-[color:var(--checkout-submit-hover-bg)] hover:shadow-[0_0_20px_rgba(78,20,19,0.3)] border border-[color:var(--checkout-submit-border)] hover:border-black text-[color:var(--checkout-submit-text)] hover:text-[color:var(--checkout-submit-hover-text)] py-5 px-8 font-label-caps text-xs tracking-[0.2em] uppercase rounded-none transition-all duration-500 flex justify-center items-center gap-3 cursor-pointer group font-bold disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                <span>{isProcessingPayment ? 'Processing Payment...' : isLaunchingWidget ? 'Launching Widget...' : 'Authorize Payment'}</span>
+                <span>{isProcessingPayment ? 'Processing Payment...' : 'Authorize Payment'}</span>
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform duration-500 text-[color:var(--checkout-submit-text)] group-hover:text-[color:var(--checkout-submit-hover-text)] shrink-0" />
               </button>
 

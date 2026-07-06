@@ -9,7 +9,7 @@ type BilaResponseEnvelope<T> = {
   error?: string;
 };
 
-export type BilaMobileMoneyProvider = 'mtn' | 'airtel';
+export type BilaMobileMoneyProvider = 'mtn' | 'airtel' | 'zamtel' | 'vodacom';
 
 export type BilaMobileMoneyCollection = {
   id?: string;
@@ -32,6 +32,11 @@ export type BilaMobileMoneyCollectionRequest = {
   reference: string;
   metadata?: Record<string, unknown>;
   callback_url?: string;
+  walletId: string;
+  country: string;
+  bearer?: 'merchant' | 'customer';
+  narration?: string;
+  customerNames?: string;
 };
 
 export type BilaCollectionStatusResponse = {
@@ -55,8 +60,20 @@ function getBilaSecretKey() {
   return process.env.BILA_SECRET_KEY?.trim() || null;
 }
 
+export function getBilaWalletId() {
+  const walletId = process.env.BILA_WALLET_ID?.trim();
+  if (!walletId) {
+    throw new Error('BILA_WALLET_ID is required to create Bila mobile money collections.');
+  }
+  return walletId;
+}
+
+export function getBilaCountry() {
+  return process.env.BILA_COUNTRY?.trim().toLowerCase() || 'zm';
+}
+
 function hasBilaCredentials() {
-  return Boolean(getBilaApiBaseUrl() && getBilaSecretKey());
+  return Boolean(getBilaApiBaseUrl() && getBilaSecretKey() && process.env.BILA_WALLET_ID?.trim());
 }
 
 function buildBilaHeaders() {
@@ -66,7 +83,7 @@ function buildBilaHeaders() {
   }
 
   return {
-    Authorization: `Bearer ${secretKey}`,
+    'x-api-key': secretKey,
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
@@ -168,12 +185,14 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
   const payload = await postBilaJson<BilaMobileMoneyCollection>('/api/v1/bila/collections/mobile-money', {
     amount: Math.round(request.amount),
     currency: request.currency,
-    description: request.description,
-    customer_email: request.customerEmail,
-    customer_name: request.customerName,
-    phone: request.phone,
-    provider: request.provider,
-    reference: request.reference,
+    references: request.reference,
+    phones: request.phone,
+    operator: request.provider,
+    country: request.country,
+    walletId: request.walletId,
+    bearer: request.bearer ?? 'merchant',
+    narration: request.narration ?? request.description,
+    customerNames: request.customerNames ?? request.customerName,
     metadata: request.metadata,
     callback_url: request.callback_url,
   });
@@ -212,12 +231,20 @@ export function parseBilaWebhookEvent(event: unknown) {
     ? (payload.data as Record<string, unknown>)
     : (payload as Record<string, unknown>);
 
-  const reference = typeof data.reference === 'string' ? data.reference : null;
+  const reference = typeof data.reference === 'string'
+    ? data.reference
+    : typeof payload.reference === 'string'
+      ? payload.reference
+      : null;
 
-  const providerPaymentId = typeof data.id === 'string' ? data.id : undefined;
+  const providerPaymentId = typeof data.id === 'string'
+    ? data.id
+    : typeof payload.id === 'string'
+      ? payload.id
+      : undefined;
 
   const status = normalizeBilaPaymentStatus(
-    typeof data.status === 'string' ? data.status : undefined,
+    typeof data.status === 'string' ? data.status : typeof payload.status === 'string' ? payload.status : undefined,
   );
 
   const eventId = typeof payload.eventId === 'string'
