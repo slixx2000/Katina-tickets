@@ -204,7 +204,6 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
     bearer: request.bearer ?? 'merchant',
     narration: request.narration ?? request.description,
     customerName: request.customerName ?? request.customerNames,
-    callback_url: request.callback_url,
   } as Record<string, unknown>;
 
   // Log prepared payload without secrets
