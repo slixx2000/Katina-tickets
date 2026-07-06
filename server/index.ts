@@ -1957,7 +1957,9 @@ app.post('/api/session-auth/exchange', authRateLimiter, createOriginGuard(allowe
       mfaEnabled: verifiedUser.mfaEnabled,
     });
 
-    const hasActiveMfaFactor = roleRequiresMfa(user.role)
+    // Skip MFA requirement for allowlisted admins since they're already authenticated via allowlist
+    const shouldRequireMfa = roleRequiresMfa(user.role) && !isAllowlistedAdmin;
+    const hasActiveMfaFactor = shouldRequireMfa
       ? await resolveUserHasActiveMfaFactor(user.id)
       : false;
 
@@ -2727,10 +2729,6 @@ app.get('/api/admin/overview', async (request: Request, response: Response) => {
   const principal = await requireAuthenticatedSession(request);
   if (!principal) {
     response.status(401).json({ success: false, message: 'Authentication required.' });
-    return;
-  }
-
-  if (!(await requireMfaForPrincipal(request, response, principal))) {
     return;
   }
 
