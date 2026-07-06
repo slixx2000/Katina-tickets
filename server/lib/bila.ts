@@ -301,7 +301,15 @@ export function verifyBilaWebhookSignature(rawBody: string, signatureHeader: str
     const expectedSignature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
     
     // Remove any "whsec_" prefix if present in the header
-    const cleanedHeader = signatureHeader.replace(/^whsec_/, '');
+    const cleanedHeader = signatureHeader.replace(/^sha256=/, '').replace(/^whsec_/, '');
+
+    if (expectedSignature.length !== cleanedHeader.length) {
+      console.warn('[WEBHOOK] Signature length mismatch', {
+        expectedLength: expectedSignature.length,
+        receivedLength: cleanedHeader.length,
+      });
+      return false;
+    }
     
     // Use constant-time comparison to prevent timing attacks
     return crypto.timingSafeEqual(
