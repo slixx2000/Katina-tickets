@@ -1941,6 +1941,15 @@ app.post('/api/session-auth/exchange', authRateLimiter, createOriginGuard(allowe
       ? (isAdminConsoleRole(requestedRole) ? requestedRole : 'SUPER_ADMIN')
       : (isAdminConsoleRole(requestedRole) ? 'CUSTOMER' : requestedRole);
 
+    logEvent('info', 'auth.exchange.supabase', {
+      email: normalizedEmail,
+      allowlistSize: adminAllowlist.size,
+      isAllowlistedAdmin,
+      requestedRole,
+      finalRole: role,
+      allowlistEmails: Array.from(adminAllowlist),
+    });
+
     const user = await authRepository.upsertUserFromOAuth({
       id: verifiedUser.id,
       email: verifiedUser.email,
@@ -2726,7 +2735,16 @@ app.get('/api/admin/overview', async (request: Request, response: Response) => {
   }
 
   if (!['SUPER_ADMIN'].includes(principal.role)) {
-    response.status(403).json({ success: false, message: 'Forbidden.' });
+    logEvent('warn', 'admin.access.denied', {
+      email: principal.email,
+      actualRole: principal.role,
+      requiredRole: 'SUPER_ADMIN',
+    });
+    response.status(403).json({
+      success: false,
+      message: 'Forbidden.',
+      debug: { actualRole: principal.role, requiredRole: 'SUPER_ADMIN', email: principal.email },
+    });
     return;
   }
 
