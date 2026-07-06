@@ -42,7 +42,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="font-label-caps text-[11px] tracking-widest uppercase text-[#F4F4F2] mb-2">4. Third-Party Sharing</h2>
             <p>
               We share limited data with service providers that support payment processing, infrastructure hosting, and analytics.
-              Card and mobile money payment credentials are processed by Lenco and are not stored on our servers.
+              Card and mobile money payment credentials are processed by Bila and are not stored on our servers.
             </p>
           </section>
 

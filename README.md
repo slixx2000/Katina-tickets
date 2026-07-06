@@ -23,9 +23,10 @@ npm install
 - `SUPABASE_TICKETS_BUCKET` (optional, defaults to `tickets`)
 - `REQUIRE_DATABASE` (`true` in production to enforce startup DB requirement)
 - `TICKET_DELIVERY_PROVIDER` (optional; enables post-persistence delivery hook observability)
-- `LENCO_PUBLIC_KEY`
-- `LENCO_SECRET_KEY`
-- `LENCO_WEBHOOK_SECRET`
+- `VITE_BILA_PUBLIC_KEY`
+- `BILA_PUBLIC_KEY`
+- `BILA_SECRET_KEY`
+- `BILA_WEBHOOK_SECRET`
 
 3. Run the app and API together:
 
@@ -35,45 +36,47 @@ npm run dev
 
 This starts the Vite frontend on port 3000 and the Express API on port 8787.
 
-## Supabase + Lenco Prep
+## Supabase + Bila Prep
 
 The app now includes:
 
 - A Supabase client wrapper with a safe mock fallback while env vars are missing.
 - Admin auth/session exchange integrated with backend HttpOnly cookie sessions.
-- Lenco-backed payment routes on the Express API (`/api/pay`, `/api/webhook`) with reservation and ticket issuance endpoints.
+- Bila-backed payment routes on the Express API (`/api/pay`, `/api/webhooks/bila`) with reservation and ticket issuance endpoints.
 
-The dev server now proxies `/api` requests to the local Express backend so the checkout flow can hit `/api/pay` and `/api/webhook` during development.
+The dev server now proxies `/api` requests to the local Express backend so the checkout flow can hit `/api/pay` and `/api/webhooks/bila` during development.
 
 When you’re ready for production, the next step is to harden the deployment profile (TLS, CSP, monitoring, and CI quality gates) and run Prisma migrations against your production database.
 
-## Vercel LENCO Env Sync
+## Vercel BILA Env Sync
 
-Use the new sync script to update LENCO-related Vercel environment variables from your local `.env` values:
+Use the new sync script to update BILA-related Vercel environment variables from your local `.env` values:
 
 ```bash
 npx vercel login
 npx vercel link
-npm run vercel:env:lenco
+npm run vercel:env:bila
 ```
 
-To overwrite all LENCO env values across production, preview, and development:
+To overwrite all BILA env values across production, preview, and development:
 
 ```bash
-npm run vercel:env:lenco:all
+npm run vercel:env:bila:all
 ```
 
 This sync includes:
 
-- `LENCO_ENV`
-- `LENCO_PUBLIC_KEY`
-- `LENCO_SECRET_KEY`
-- `LENCO_WEBHOOK_SECRET`
-- `LENCO_API_BASE_URL`
+- `BILA_ENV`
+- `VITE_BILA_PUBLIC_KEY`
+- `BILA_PUBLIC_KEY`
+- `BILA_SECRET_KEY`
+- `BILA_WEBHOOK_SECRET`
+- `BILA_API_BASE_URL`
+- `BILA_WEBHOOK_URL`
 - `APP_URL`
 - `APP_ORIGIN`
 
-Security note: never create `VITE_LENCO_SECRET_KEY` or `VITE_LENCO_WEBHOOK_SECRET`, because `VITE_` variables are bundled into the browser build.
+Security note: never create `VITE_BILA_SECRET_KEY` or `VITE_BILA_WEBHOOK_SECRET`, because `VITE_` variables are bundled into the browser build.
 
 ## Reproduce Production Env Locally
 

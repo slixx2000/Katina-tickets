@@ -27,23 +27,24 @@ for (const target of targets) {
   }
 }
 
-if (process.env.VITE_LENCO_SECRET_KEY || process.env.VITE_LENCO_WEBHOOK_SECRET) {
-  console.error('Refusing to continue: LENCO secret variables must not use the VITE_ prefix.');
+if (process.env.VITE_BILA_SECRET_KEY || process.env.VITE_BILA_WEBHOOK_SECRET) {
+  console.error('Refusing to continue: BILA secret variables must not use the VITE_ prefix.');
   process.exit(1);
 }
 
-const lencoEnvKeys = [
-  'LENCO_ENV',
-  'VITE_LENCO_PUBLIC_KEY',
-  'LENCO_PUBLIC_KEY',
-  'LENCO_SECRET_KEY',
-  'LENCO_WEBHOOK_SECRET',
-  'LENCO_API_BASE_URL',
+const bilaEnvKeys = [
+  'BILA_ENV',
+  'VITE_BILA_PUBLIC_KEY',
+  'BILA_PUBLIC_KEY',
+  'BILA_SECRET_KEY',
+  'BILA_WEBHOOK_SECRET',
+  'BILA_API_BASE_URL',
+  'BILA_WEBHOOK_URL',
   'APP_URL',
   'APP_ORIGIN',
 ];
 
-const missing = lencoEnvKeys.filter((key) => {
+const missing = bilaEnvKeys.filter((key) => {
   const value = process.env[key];
   return typeof value !== 'string' || value.trim().length === 0;
 });
@@ -119,7 +120,7 @@ if (!hasProjectLink) {
 }
 
 for (const target of targets) {
-  for (const key of lencoEnvKeys) {
+  for (const key of bilaEnvKeys) {
     const value = process.env[key];
     if (typeof value !== 'string') {
       continue;
@@ -135,4 +136,4 @@ for (const target of targets) {
   }
 }
 
-console.log(`LENCO env sync complete for targets: ${targets.join(', ')}`);
+console.log(`BILA env sync complete for targets: ${targets.join(', ')}`);

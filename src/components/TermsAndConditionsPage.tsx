@@ -31,7 +31,7 @@ export default function TermsAndConditionsPage() {
           <section>
             <h2 className="font-label-caps text-[11px] tracking-widest uppercase text-[#F4F4F2] mb-2">3. Payment Processing</h2>
             <p>
-              Payments are processed by Lenco. We do not store full card details or payment credentials on our servers.
+              Payments are processed by Bila. We do not store full card details or payment credentials on our servers.
             </p>
           </section>
 

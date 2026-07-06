@@ -21,10 +21,9 @@ beforeEach(() => {
   vi.stubGlobal('fetch', async () => new Response(JSON.stringify({
     success: true,
     data: {
-      id: 'lenco-test-collection-id',
-      reference: 'LENCO-TEST-REFERENCE',
-      lencoReference: 'lenco-test-collection-id',
-      status: 'PENDING',
+      id: 'bila-test-collection-id',
+      reference: 'BILA-TEST-REFERENCE',
+      status: 'pending',
     },
   }), {
     status: 200,
@@ -52,7 +51,7 @@ describe('API integration', () => {
   it('treats duplicate webhook event IDs as idempotent duplicates', async () => {
     const payload = {
       eventId: 'evt-duplicate-1',
-      reference: 'LENCO-TEST-REF-12345',
+      reference: 'BILA-TEST-REF-12345',
       status: 'paid',
       data: {
         id: 'pay-123',
@@ -77,12 +76,12 @@ describe('API integration', () => {
   });
 
   it('accepts webhooks signed with the expected HMAC-SHA256 signature', async () => {
-    process.env.LENCO_WEBHOOK_SECRET = 'test-webhook-secret';
+    process.env.BILA_WEBHOOK_SECRET = 'test-webhook-secret';
 
     const payload = {
       eventId: 'evt-hmac-approved',
-      reference: 'LENCO-TEST-REF-HMAC-APPROVED',
-      status: 'paid',
+      reference: 'BILA-TEST-REF-HMAC-APPROVED',
+      status: 'completed',
       data: {
         id: 'pay-hmac-approved',
       },
@@ -90,14 +89,14 @@ describe('API integration', () => {
 
     const rawBody = JSON.stringify(payload);
     const signature = crypto
-      .createHmac('sha256', process.env.LENCO_WEBHOOK_SECRET as string)
+      .createHmac('sha256', process.env.BILA_WEBHOOK_SECRET as string)
       .update(rawBody)
       .digest('hex');
 
     const response = await request(app)
-      .post('/api/webhook')
+      .post('/api/webhooks/bila')
       .set('Content-Type', 'application/json')
-      .set('x-lenco-signature', `sha256=${signature}`)
+      .set('x-webhook-signature', signature)
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -189,14 +188,14 @@ describe('API integration', () => {
   });
 
   it('requires authentication before reading reservation details', async () => {
-    const response = await request(app).get('/api/payments/LENCO-TEST-REF-12345/reservation');
+    const response = await request(app).get('/api/payments/BILA-TEST-REF-12345/reservation');
 
     expect(response.status).toBe(401);
     expect(response.body.success).toBe(false);
   });
 
   it('requires authentication before reading ticket tokens', async () => {
-    const response = await request(app).get('/api/payments/LENCO-TEST-REF-12345/ticket-token');
+    const response = await request(app).get('/api/payments/BILA-TEST-REF-12345/ticket-token');
 
     expect(response.status).toBe(401);
     expect(response.body.success).toBe(false);

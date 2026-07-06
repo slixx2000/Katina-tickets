@@ -49,10 +49,10 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
   const basePriceTimesQty = selectedPackage.price * registrationData.quantity;
   const taxesFees = Math.round(basePriceTimesQty * 0.01);
   const grandTotal = basePriceTimesQty + taxesFees;
-  const lencoPublicKey = import.meta.env.VITE_LENCO_PUBLIC_KEY || import.meta.env.VITE_LENCO_PUBLIC_KEY_DEV;
+  const bilaPublicKey = import.meta.env.VITE_BILA_PUBLIC_KEY;
   const widgetScriptSrc = import.meta.env.MODE === 'production'
-    ? 'https://pay.lenco.co/js/v1/inline.js'
-    : 'https://pay.sandbox.lenco.co/js/v1/inline.js';
+    ? 'https://widget.usebila.com/v1/embed.js'
+    : 'https://widget.usebila.com/v1/embed.js';
 
   React.useEffect(() => {
     const existingScript = document.querySelector(`script[src="${widgetScriptSrc}"]`);
@@ -65,7 +65,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
     script.src = widgetScriptSrc;
     script.async = true;
     script.onload = () => setIsScriptLoaded(true);
-    script.onerror = () => setCheckoutError('Unable to load the Lenco payment widget.');
+    script.onerror = () => setCheckoutError('Unable to load the Bila payment widget.');
     document.body.appendChild(script);
 
     return () => {
@@ -77,7 +77,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const paymentReference = `LENCO-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const paymentReference = `BILA-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     logFrontendEvent('checkout.started', {
       paymentReference,
       amount: grandTotal,
@@ -106,12 +106,12 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
       return;
     }
 
-    if (!lencoPublicKey) {
+    if (!bilaPublicKey) {
       logFrontendEvent('checkout.validation.failed', {
         paymentReference,
-        reason: 'missing_lenco_public_key',
+        reason: 'missing_bila_public_key',
       });
-      setCheckoutError('Missing Lenco public key for the payment widget.');
+      setCheckoutError('Missing Bila public key for the payment widget.');
       return;
     }
 
@@ -171,13 +171,13 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
         responseBody: launchPayload,
       });
 
-      const lenco = (window as Window & { LencoPay?: { getPaid: (args: Record<string, unknown>) => void } }).LencoPay;
-      if (!lenco) {
+      const bila = (window as Window & { BilaWidget?: { open: (args: Record<string, unknown>) => void } }).BilaWidget;
+      if (!bila) {
         logFrontendEvent('widget.launch.failed', {
           paymentReference: reference,
           reason: 'widget_unavailable',
         });
-        setCheckoutError('The Lenco payment widget is not available.');
+        setCheckoutError('The Bila payment widget is not available.');
         return;
       }
 
@@ -186,24 +186,27 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
 
       logFrontendEvent('widget.opened', {
         paymentReference: reference,
-        lencoPublicKey,
+        bilaPublicKey,
         amount: grandTotal,
         currency: 'ZMW',
       });
 
-      lenco.getPaid({
-        key: lencoPublicKey,
+      bila.open({
+        key: bilaPublicKey,
         reference,
         email: registrationData.email,
         amount: grandTotal,
         currency: 'ZMW',
         label: 'Katina Basil Checkout',
-        channels: ['mobile-money'],
+        method: 'mobile_money',
+        provider: operator,
         customer: {
           firstName: firstName || 'Guest',
           lastName,
           phone: normalizedPhoneNumber,
         },
+        success_url: import.meta.env.VITE_BILA_SUCCESS_URL,
+        cancel_url: import.meta.env.VITE_BILA_CANCEL_URL,
         onSuccess: async (response: { reference?: string }) => {
           const verifiedReference = response.reference || reference;
           logFrontendEvent('payment.authorized', {
@@ -215,7 +218,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
             logFrontendEvent('payment.verification.request.started', {
               paymentReference: verifiedReference,
             });
-            const verifyResponse = await fetch(`/api/payments/${encodeURIComponent(verifiedReference)}/lenco-status`, {
+            const verifyResponse = await fetch(`/api/payments/${encodeURIComponent(verifiedReference)}/bila-status`, {
               credentials: 'include',
             });
             const verifyPayload = await verifyResponse.json().catch(() => null);
@@ -286,7 +289,7 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
           setCheckoutOutcome({
             status: 'pending',
             reference,
-            message: 'Payment is awaiting confirmation from Lenco.',
+            message: 'Payment is awaiting confirmation from Bila.',
           });
         },
       });
@@ -483,10 +486,10 @@ export default function SecureCheckout({ registrationData, selectedPackage, onSu
                 Mobile money payment only for now.
               </p>
               <p className="text-xs text-[color:var(--checkout-text)]/60">
-                You will receive a direct collection request from Lenco after submission.
+                You will receive a direct collection request from Bila after submission.
               </p>
               <p className="text-xs text-[color:var(--checkout-text)]/75 mt-2">
-                Card and payment credentials are processed by Lenco and are not stored on our servers.
+                Payment credentials are processed by Bila and are not stored on our servers.
               </p>
             </div>
 

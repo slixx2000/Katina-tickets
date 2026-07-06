@@ -19,7 +19,7 @@ import { MFA_RECOMMENDED_ROLES, normalizeAppRole, type AppRole } from '../shared
 import { isPrismaAvailable, prisma } from './lib/prisma.js';
 import { PrismaSessionStore } from './auth/prisma-session-store.js';
 import { PrismaAuthRepository } from './auth/prisma-repository.js';
-import { canUseLencoGateway, getLencoCollectionStatus, parseLencoWebhookEvent } from './lib/lenco.js';
+import { canUseBilaGateway, getBilaCollectionStatus, parseBilaWebhookEvent, verifyBilaWebhookSignature } from './lib/bila.js';
 import {
   buildOtpAuthUri,
   decryptMfaSecret,
@@ -30,14 +30,14 @@ import {
   verifyTotpCode,
 } from './auth/mfa.js';
 
-type LencoPaymentRequest = {
+type BilaPaymentRequest = {
   amount?: unknown;
   currency?: unknown;
   description?: unknown;
   customerEmail?: unknown;
   customerName?: unknown;
-  phoneNumber?: unknown;
-  operator?: unknown;
+  phone?: unknown;
+  provider?: unknown;
   metadata?: unknown;
 };
 
@@ -188,8 +188,8 @@ function validateStartupConfig() {
   const appUrlConfigured = hasValue(process.env.APP_URL) || hasValue(process.env.APP_ORIGIN);
   const supabaseUrlConfigured = hasValue(process.env.SUPABASE_URL) || hasValue(process.env.VITE_SUPABASE_URL);
   const supabaseServiceKeyConfigured = hasValue(process.env.SUPABASE_SERVICE_ROLE_KEY);
-  const lencoSecretConfigured = hasValue(process.env.LENCO_SECRET_KEY);
-  const lencoWebhookSecretConfigured = hasValue(process.env.LENCO_WEBHOOK_SECRET);
+  const bilaSecretConfigured = hasValue(process.env.BILA_SECRET_KEY);
+  const bilaWebhookSecretConfigured = hasValue(process.env.BILA_WEBHOOK_SECRET);
 
   if (!appUrlConfigured) {
     warnings.push('APP_URL_OR_ORIGIN_MISSING');
@@ -207,16 +207,16 @@ function validateStartupConfig() {
     warnings.push('TICKET_STORAGE_BUCKET_CONFIGURED_WITHOUT_SUPABASE_ADMIN_CREDENTIALS');
   }
 
-  if (isProductionRuntime() && !lencoSecretConfigured) {
-    errors.push('LENCO_SECRET_KEY_REQUIRED_IN_PRODUCTION');
+  if (isProductionRuntime() && !bilaSecretConfigured) {
+    errors.push('BILA_SECRET_KEY_REQUIRED_IN_PRODUCTION');
   }
 
-  if (isProductionRuntime() && !lencoWebhookSecretConfigured) {
-    errors.push('LENCO_WEBHOOK_SECRET_REQUIRED_IN_PRODUCTION');
+  if (isProductionRuntime() && !bilaWebhookSecretConfigured) {
+    errors.push('BILA_WEBHOOK_SECRET_REQUIRED_IN_PRODUCTION');
   }
 
-  if (lencoSecretConfigured && !lencoWebhookSecretConfigured) {
-    warnings.push('LENCO_WEBHOOK_SECRET_MISSING_SIGNATURE_VERIFICATION_REDUCED');
+  if (bilaSecretConfigured && !bilaWebhookSecretConfigured) {
+    warnings.push('BILA_WEBHOOK_SECRET_MISSING_SIGNATURE_VERIFICATION_REDUCED');
   }
 
   return {
@@ -339,10 +339,10 @@ app.use((request, response, next) => {
 
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://pay.lenco.co https://pay.sandbox.lenco.co",
+    "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
-    "connect-src 'self' https://api.lenco.co https://sandbox.lenco.co https://*.supabase.co",
+    "connect-src 'self' https://api.usebila.com https://*.supabase.co",
     "font-src 'self' data:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -640,57 +640,15 @@ function resolveMfaFlag(requestedRole: AppRole) {
 }
 
 function parseWebhookSignature(signatureHeader: string | undefined) {
-  if (!signatureHeader) {
-    return null;
-  }
-
-  const trimmed = signatureHeader.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const parts = trimmed
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length === 0) {
-    return null;
-  }
-
-  const directValue = parts.find((part) => !part.includes('='));
-  if (directValue) {
-    return directValue;
-  }
-
-  for (const part of parts) {
-    const [prefix, ...valueParts] = part.split('=');
-    const value = valueParts.join('=').trim();
-    if (!value) {
-      continue;
-    }
-
-    const normalizedPrefix = prefix?.trim().toLowerCase();
-    if (normalizedPrefix === 'sha256' || normalizedPrefix === 'v1' || normalizedPrefix === 'v2') {
-      return value;
-    }
-  }
-
-  const fallback = parts[0];
-  const separatorIndex = fallback.indexOf('=');
-  return separatorIndex >= 0 ? fallback.slice(separatorIndex + 1).trim() : fallback;
+  if (!signatureHeader) return null;
+  return signatureHeader.split(',')[0].trim();
 }
 
 function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined) {
-  const secret = process.env.LENCO_WEBHOOK_SECRET?.trim();
+  const secret = process.env.BILA_WEBHOOK_SECRET?.trim();
   const providedSignature = parseWebhookSignature(signatureHeader);
 
   if (!secret || !providedSignature) {
-    return false;
-  }
-
-  const normalizedProvidedSignature = providedSignature.trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(normalizedProvidedSignature)) {
     return false;
   }
 
@@ -699,13 +657,9 @@ function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undef
     .update(rawBody)
     .digest('hex');
 
-  if (expectedSignature.length !== normalizedProvidedSignature.length) {
-    return false;
-  }
-
   return crypto.timingSafeEqual(
     Buffer.from(expectedSignature, 'hex'),
-    Buffer.from(normalizedProvidedSignature, 'hex'),
+    Buffer.from(providedSignature, 'hex')
   );
 }
 
@@ -765,9 +719,9 @@ function base64UrlEncode(value: string) {
 }
 
 function signTicketToken(reference: string) {
-  const secret = process.env.NEXTAUTH_SECRET || process.env.LENCO_WEBHOOK_SECRET;
+  const secret = process.env.NEXTAUTH_SECRET || process.env.BILA_WEBHOOK_SECRET;
   if (!secret && process.env.NODE_ENV === 'production') {
-    throw new Error('NEXTAUTH_SECRET or LENCO_WEBHOOK_SECRET must be configured in production.');
+    throw new Error('NEXTAUTH_SECRET or BILA_WEBHOOK_SECRET must be configured in production.');
   }
 
   const resolvedSecret = secret || 'katina-dev-ticket-secret';
@@ -1703,21 +1657,21 @@ async function updatePaymentIntentFromWebhook(input: {
   }
 }
 
-function mapLencoStatusToPaymentStatus(status: string | undefined) {
-  if (status === 'PAID') {
+function mapBilaStatusToPaymentStatus(status: string | undefined) {
+  if (status === 'completed') {
     return 'PAID' as const;
   }
 
-  if (status === 'FAILED') {
+  if (status === 'failed') {
     return 'FAILED' as const;
   }
 
-  if (status === 'CANCELLED') {
-    return 'CANCELLED' as const;
+  if (status === 'refunded') {
+    return 'REFUNDED' as const;
   }
 
-  if (status === 'REFUNDED') {
-    return 'REFUNDED' as const;
+  if (status === 'pending') {
+    return 'PENDING' as const;
   }
 
   return 'PENDING' as const;
@@ -1789,7 +1743,7 @@ async function persistWebhookDelivery(input: {
   try {
     await prisma.webhookDelivery.create({
       data: {
-        provider: 'LENCO',
+        provider: 'BILA',
         providerEventId: input.providerEventId,
         signature: input.signature,
         payload: toPrismaJson(input.payload) ?? ({} as Prisma.InputJsonValue),
@@ -3215,7 +3169,7 @@ app.get('/api/me/tickets', ticketReadRateLimiter, async (request: Request, respo
   });
 });
 
-app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: AuthenticatedRequest & Request<unknown, unknown, LencoPaymentRequest>, response: Response) => {
+app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), createCsrfGuard(allowedOrigins), async (request: AuthenticatedRequest & Request<unknown, unknown, BilaPaymentRequest>, response: Response) => {
   const route = '/api/pay';
   const requestId = resolveRequestId(request);
   const startedAt = Date.now();
@@ -3230,7 +3184,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     return;
   }
 
-  const {amount, currency, description, customerEmail, customerName, phoneNumber, operator, metadata} = request.body;
+  const {amount, currency, description, customerEmail, customerName, phone, provider, metadata} = request.body;
 
   logStructuredEvent('info', '[PAYMENT]', route, 'request.received', {
     requestId,
@@ -3240,8 +3194,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
     description: typeof description === 'string' ? description : undefined,
     customerEmail: typeof customerEmail === 'string' ? customerEmail : undefined,
     customerName: typeof customerName === 'string' ? customerName : undefined,
-    phoneNumber: typeof phoneNumber === 'string' ? phoneNumber : undefined,
-    operator: typeof operator === 'string' ? operator : undefined,
+    phone: typeof phone === 'string' ? phone : undefined,
+    provider: typeof provider === 'string' ? provider : undefined,
     metadata: toJsonObject(metadata),
     requestBody: request.body,
   });
@@ -3268,8 +3222,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    const normalizedPhone = isNonEmptyString(phoneNumber) ? phoneNumber.trim() : '';
-    const normalizedOperator = isNonEmptyString(operator) ? operator.trim().toLowerCase() : '';
+    const normalizedPhone = isNonEmptyString(phone) ? phone.trim() : '';
+    const normalizedProvider = isNonEmptyString(provider) ? provider.trim().toLowerCase() : '';
     if (!normalizedPhone) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
         requestId,
@@ -3280,14 +3234,14 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    if (!['mtn', 'airtel', 'zamtel'].includes(normalizedOperator)) {
+    if (!['mtn', 'airtel'].includes(normalizedProvider)) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'validation.failed', {
         requestId,
         userId: principal.userId,
-        reason: 'invalid_operator',
-        operator: normalizedOperator,
+        reason: 'invalid_provider',
+        provider: normalizedProvider,
       });
-      response.status(400).json({ success: false, message: 'A valid operator is required.' });
+      response.status(400).json({ success: false, message: 'A valid mobile money provider is required.' });
       return;
     }
 
@@ -3305,7 +3259,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    if (!canUseLencoGateway()) {
+    if (!canUseBilaGateway()) {
       logStructuredEvent('warn', '[PAYMENT]', route, 'gateway.unavailable', {
         requestId,
         userId: principal.userId,
@@ -3314,15 +3268,15 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       return;
     }
 
-    const reference = `LENCO-${crypto.randomUUID()}`;
+    const reference = `BILA-${crypto.randomUUID()}`;
     const payload: {
       amount: number;
       currency: string;
       description: string;
       customerEmail?: string;
       customerName?: string;
-      phoneNumber: string;
-      operator: 'mtn' | 'airtel' | 'zamtel';
+      phone: string;
+      provider: 'mtn' | 'airtel';
       metadata?: Record<string, unknown>;
       reference: string;
     } = {
@@ -3331,8 +3285,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       description: description.trim(),
       customerEmail: isNonEmptyString(customerEmail) ? customerEmail.trim() : undefined,
       customerName: isNonEmptyString(customerName) ? customerName.trim() : undefined,
-      phoneNumber: normalizedPhone,
-      operator: normalizedOperator as 'mtn' | 'airtel' | 'zamtel',
+      phone: normalizedPhone,
+      provider: normalizedProvider as 'mtn' | 'airtel',
       metadata: normalizedMetadata,
       reference,
     };
@@ -3347,8 +3301,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       metadata: payload.metadata,
       customerEmail: payload.customerEmail,
       customerName: payload.customerName,
-      phoneNumber: payload.phoneNumber,
-      operator: payload.operator,
+      phone: payload.phone,
+      provider: payload.provider,
     });
 
     await persistPaymentIntent({
@@ -3382,7 +3336,7 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
       elapsedMs: Date.now() - startedAt,
       responseBody: {
         success: true,
-        message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
+        message: 'Payment reference reserved. Proceed with payment verification.',
         reference,
         amount: payload.amount,
         currency: payload.currency,
@@ -3391,14 +3345,14 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
 
     response.json({
       success: true,
-      message: 'Payment reference reserved. Launch the Lenco widget from the browser.',
+      message: 'Payment reference reserved. Proceed with payment verification.',
       reference,
       amount,
       currency: payload.currency,
       customerEmail: payload.customerEmail,
       customerName: payload.customerName,
-      phoneNumber: payload.phoneNumber,
-      operator: payload.operator,
+      phone: payload.phone,
+      provider: payload.provider,
     });
   } catch (error) {
     logPaymentError('[PAYMENT]', route, 'session.creation.failed', error, {
@@ -3411,8 +3365,8 @@ app.post('/api/pay', paymentRateLimiter, createOriginGuard(allowedOrigins), crea
   }
 });
 
-app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
-  const route = '/api/payments/:reference/lenco-status';
+app.get('/api/payments/:reference/bila-status', ticketReadRateLimiter, async (request: Request<{ reference: string }>, response: Response) => {
+  const route = '/api/payments/:reference/bila-status';
   const requestId = resolveRequestId(request);
   const startedAt = Date.now();
   const principal = await requireAuthenticatedSession(request);
@@ -3466,7 +3420,7 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
     return;
   }
 
-  if (!canUseLencoGateway()) {
+  if (!canUseBilaGateway()) {
     logStructuredEvent('warn', '[VERIFY]', route, 'gateway.unavailable', {
       requestId,
       userId: principal.userId,
@@ -3477,22 +3431,21 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
   }
 
   try {
-    const status = await getLencoCollectionStatus(reference);
+    const status = await getBilaCollectionStatus(reference);
     let transactionUpdated = false;
     let reservationFinalized = false;
     let ticketDeliveryReady = false;
 
-    logStructuredEvent('info', '[VERIFY]', route, 'lenco.status.requested', {
+    logStructuredEvent('info', '[VERIFY]', route, 'bila.status.requested', {
       requestId,
       userId: principal.userId,
       paymentReference: reference,
-      lencoReference: status.lencoReference,
-      providerPaymentId: status.id,
+      bilaReference: status.id,
       providerStatus: status.status,
     });
 
     if (isPrismaAvailable() && status.status) {
-      const mappedStatus = mapLencoStatusToPaymentStatus(status.status);
+      const mappedStatus = mapBilaStatusToPaymentStatus(status.status);
 
       logStructuredEvent('info', '[DATABASE]', route, 'payment.status.verify', {
         requestId,
@@ -3533,7 +3486,7 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
       success: true,
       reference,
       id: status.id,
-      lencoReference: status.lencoReference,
+      bilaReference: status.id,
       status: status.status,
       transactionUpdated,
       reservationFinalized,
@@ -3548,20 +3501,20 @@ app.get('/api/payments/:reference/lenco-status', ticketReadRateLimiter, async (r
     });
     response.status(502).json({
       success: false,
-      message: error instanceof Error ? error.message : 'Unable to verify payment status with Lenco.',
+      message: error instanceof Error ? error.message : 'Unable to verify payment status with Bila.',
     });
   }
 });
 
 app.post(
-  '/api/webhook',
+  '/api/webhooks/bila',
   webhookRateLimiter,
   async (request: Request, response: Response) => {
-    const route = '/api/webhook';
+    const route = '/api/webhooks/bila';
     const startedAt = Date.now();
     const requestId = resolveRequestId(request);
     const rawBody = (request as RequestWithRawBody).rawBody ?? Buffer.from('');
-    const signature = request.header('x-lenco-signature') || request.header('x-webhook-signature');
+    const signature = request.header('x-bila-signature') || request.header('x-webhook-signature');
 
     console.log('==========================');
     console.log('WEBHOOK RECEIVED');
@@ -3577,7 +3530,7 @@ app.post(
 
     try {
       let verificationReason = 'signature_validation_skipped';
-      if (process.env.LENCO_WEBHOOK_SECRET) {
+      if (process.env.BILA_WEBHOOK_SECRET) {
         verificationReason = !signature ? 'missing_signature_header' : 'signature_mismatch';
       }
 
@@ -3586,7 +3539,7 @@ app.post(
         signatureHeader: signature,
       });
 
-      const verificationPassed = verifyWebhookSignature(rawBody, signature);
+      const verificationPassed = verifyBilaWebhookSignature(rawBody.toString('utf8'), signature ?? '');
       if (!verificationPassed) {
         logStructuredEvent('warn', '[WEBHOOK]', route, 'signature.verification.failed', {
           requestId,
@@ -3641,7 +3594,7 @@ app.post(
         currency: parsedBody.currency,
       });
 
-      const parsed = parseLencoWebhookEvent(event);
+      const parsed = parseBilaWebhookEvent(event);
       if (!parsed) {
         logStructuredEvent('warn', '[WEBHOOK]', route, 'missing.reference', {
           requestId,
@@ -3692,7 +3645,7 @@ app.post(
       const finalized = await applyPaymentStatusAndFinalize({
         reference: parsed.reference,
         providerPaymentId: parsed.providerPaymentId,
-        status: mapLencoStatusToPaymentStatus(parsed.status),
+        status: mapBilaStatusToPaymentStatus(parsed.status),
       });
 
       logEvent('info', 'payment.webhook.processed', {
