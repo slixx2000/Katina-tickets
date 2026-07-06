@@ -204,7 +204,7 @@ export async function createBilaMobileMoneyCollection(request: BilaMobileMoneyCo
     walletId: request.walletId,
     bearer: request.bearer ?? 'merchant',
     narration: request.narration ?? request.description,
-    customerNames: request.customerNames ?? request.customerName,
+    customerName: request.customerName ?? request.customerNames,
     metadata: request.metadata,
     callback_url: request.callback_url,
   } as Record<string, unknown>;
